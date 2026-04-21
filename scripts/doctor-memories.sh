@@ -14,8 +14,7 @@
 set -u
 
 project="${MCS_PROJECT_PATH:-$PWD}"
-memories_dir_name="${MCS_RESOLVED_MEMORIES_DIR_NAME:-memories}"
-memories_link="$project/.claude/$memories_dir_name"
+memories_link="$project/.claude/memories"
 repo_dir="$project/.claude/.memories-repo"
 
 problems=()

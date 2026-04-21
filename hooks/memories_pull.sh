@@ -16,8 +16,8 @@ echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
 cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$(pwd)"
 
-# Anchor directly on the hidden sparse checkout so the hook is independent of
-# the configured MEMORIES_DIR_NAME (the user-facing symlink path).
+# Anchor on the hidden sparse checkout (the git work tree) rather than the
+# .claude/memories symlink — same git root, but one less level of indirection.
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 

@@ -11,14 +11,13 @@ set -euo pipefail
 #   .claude/.memories-repo/            ← hidden sparse clone of the memories branch
 #     memories/
 #       learning_*.md / decision_*.md
-#   .claude/<MEMORIES_DIR_NAME>        ← symlink → .memories-repo/memories
+#   .claude/memories                   ← symlink → .memories-repo/memories
 #
 # The checkout uses single-branch partial-blobless sparse-checkout so only the
 # memory markdowns materialize on disk — pack plumbing stays in git history but
 # never hits the working tree.
 
-memories_dir_name="${MCS_RESOLVED_MEMORIES_DIR_NAME:-memories}"
-memories_link="$MCS_PROJECT_PATH/.claude/$memories_dir_name"
+memories_link="$MCS_PROJECT_PATH/.claude/memories"
 repo_dir="$MCS_PROJECT_PATH/.claude/.memories-repo"
 repo_url="${MCS_RESOLVED_MEMORIES_REPO_URL:-}"
 branch="${MCS_RESOLVED_MEMORIES_BRANCH:-main}"
@@ -183,16 +182,6 @@ if [ "${imported:-0}" -gt 0 ]; then
     echo "$bad_files" | sed 's/^/  - /'
     echo "Rename them to memories/learning_<topic>_<specific>.md or memories/decision_<domain>_<topic>.md so they can be shared with the team."
   fi
-fi
-
-# ─── Gitignore nudge for non-default dir name. ─────────────────────────────
-# The pack's static gitignore covers `.claude/memories`. If the consumer picked
-# a different folder, the symlink at `.claude/<their-name>` isn't covered and
-# a parent repo might try to track it. Remind them to add it manually.
-if [ "$memories_dir_name" != "memories" ]; then
-  echo ""
-  echo "Note: your custom memories folder ($memories_link) is NOT covered by this pack's gitignore."
-  echo "Add '.claude/$memories_dir_name' to your global ~/.gitignore or the parent repo's .gitignore so it isn't tracked."
 fi
 
 count=$(ls "$memories_link"/*.md 2>/dev/null | wc -l | tr -d ' ')

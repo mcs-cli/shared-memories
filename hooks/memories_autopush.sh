@@ -27,7 +27,7 @@ echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
 cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$(pwd)"
 
-# Anchor on the hidden sparse checkout — independent of MEMORIES_DIR_NAME.
+# Anchor on the hidden sparse checkout (the git work tree).
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 

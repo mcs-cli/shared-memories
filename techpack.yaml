@@ -15,11 +15,6 @@ prompts:
     label: "Branch on the shared repo that holds memory files and this pack"
     default: "main"
 
-  - key: MEMORIES_DIR_NAME
-    type: input
-    label: "Folder name inside .claude/ that Claude Code reads memories from"
-    default: "memories"
-
 components:
   # ── Dependencies ──────────────────────────────────────────
   - id: jq
@@ -50,7 +45,7 @@ components:
 
   # ── Configuration ─────────────────────────────────────────
   - id: gitignore
-    description: Globally ignore the default memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos. If you override MEMORIES_DIR_NAME, add `.claude/<your-name>` to your gitignore manually.
+    description: Globally ignore the memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos
     isRequired: true
     gitignore:
       - .claude/memories

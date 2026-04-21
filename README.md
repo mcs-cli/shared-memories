@@ -152,7 +152,6 @@ During `mcs sync`, you'll be prompted for:
 |--------|-------------|---------|
 | **MEMORIES_REPO_URL** | Git URL of the shared memories repo (SSH or HTTPS) | *(required)* |
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
-| **MEMORIES_DIR_NAME** | Folder inside `.claude/` that Claude Code reads memories from | `memories` |
 
 ---
 
@@ -235,22 +234,6 @@ git -C .claude/.memories-repo/memories push
 ```
 
 The deletion block is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents.
-
----
-
-## Configuration Notes
-
-### Gitignore Caveat
-
-The pack adds these entries globally:
-
-```
-.claude/memories                # default symlink name
-.claude/.memories-repo          # hidden sparse checkout (fixed name)
-.claude/.memories-migration-*   # migration backups (fixed prefix)
-```
-
-If you override `MEMORIES_DIR_NAME` to anything other than `memories`, **add `.claude/<your-name>` to your gitignore manually** (global `~/.gitignore` or the parent repo's `.gitignore`). The configure script prints a reminder when this applies.
 
 ---
 
