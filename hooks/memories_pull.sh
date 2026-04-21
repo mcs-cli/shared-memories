@@ -21,16 +21,15 @@ cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
-repo_root=$(git -C "$memories_dir" rev-parse --show-toplevel 2>/dev/null) || exit 0
-
 # Fast-forward; ignore errors (covered by the state check below).
-git -C "$repo_root" pull --ff-only --quiet >/dev/null 2>&1 || true
+git -C "$memories_dir" pull --ff-only --quiet >/dev/null 2>&1 || true
 
-# Detect lingering state: uncommitted files OR local ahead of upstream.
-uncommitted=$(git -C "$repo_root" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+# Detect lingering state: uncommitted memory files OR local ahead of upstream.
+# keep in sync with hooks/memories_autopush.sh uncommitted/unpushed check
+uncommitted=$(git -C "$memories_dir" status --porcelain -- memories/ 2>/dev/null | wc -l | tr -d ' ')
 unpushed=0
-if git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-  unpushed=$(git -C "$repo_root" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
+if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  unpushed=$(git -C "$memories_dir" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
 fi
 
 [ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ] && exit 0

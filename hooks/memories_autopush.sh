@@ -27,27 +27,31 @@ echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
 cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$(pwd)"
 
-# Anchor on the hidden sparse checkout (the git work tree).
+# Anchor on the hidden sparse checkout. The memories repo may contain
+# root-level files (README etc.) — every working-tree git call below is
+# scoped with `-- memories/` so those files can't trip the guardrail.
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
-repo_root=$(git -C "$memories_dir" rev-parse --show-toplevel 2>/dev/null) || exit 0
-
 # ── Fast exit if nothing to sync ─────────────────────────────────────────
-uncommitted=$(git -C "$repo_root" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+# keep in sync with hooks/memories_pull.sh uncommitted/unpushed check
+uncommitted=$(git -C "$memories_dir" status --porcelain -- memories/ 2>/dev/null | wc -l | tr -d ' ')
 unpushed=0
-if git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-  unpushed=$(git -C "$repo_root" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
+if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  unpushed=$(git -C "$memories_dir" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
 fi
 [ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ] && exit 0
 
+# keep in sync with scripts/configure-memories.sh allowed_pattern
 allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
+committed=0
 
 if [ "$uncommitted" -gt 0 ]; then
+  untracked=$(git -C "$memories_dir" ls-files --others --exclude-standard --full-name -- memories/ 2>/dev/null || true)
   dirty_files=$(
     {
-      git -C "$repo_root" diff --name-only HEAD 2>/dev/null || true
-      git -C "$repo_root" ls-files --others --exclude-standard --full-name 2>/dev/null || true
+      git -C "$memories_dir" diff --name-only HEAD -- memories/ 2>/dev/null || true
+      printf '%s\n' "$untracked"
     } | grep -v '^$' | sort -u
   )
 
@@ -61,7 +65,7 @@ if [ "$uncommitted" -gt 0 ]; then
   fi
 
   # ── Guardrail 2: never auto-commit deletions — but don't block add/mods ──
-  deleted_files=$(git -C "$repo_root" diff --name-only --diff-filter=D HEAD 2>/dev/null || true)
+  deleted_files=$(git -C "$memories_dir" diff --name-only --diff-filter=D HEAD -- memories/ 2>/dev/null || true)
   if [ -n "$deleted_files" ]; then
     del_count=$(echo "$deleted_files" | wc -l | tr -d ' ')
     echo "Shared memories: $del_count deleted memory file(s) left for manual review (not auto-pushed):"
@@ -74,36 +78,44 @@ if [ "$uncommitted" -gt 0 ]; then
   # left in the working tree for the user to review and commit manually.
   stageable=$(
     {
-      git -C "$repo_root" diff --name-only --diff-filter=AM HEAD 2>/dev/null || true
-      git -C "$repo_root" ls-files --others --exclude-standard --full-name 2>/dev/null || true
+      git -C "$memories_dir" diff --name-only --diff-filter=AM HEAD -- memories/ 2>/dev/null || true
+      printf '%s\n' "$untracked"
     } | grep -v '^$' | sort -u
   )
 
   if [ -n "$stageable" ]; then
     while IFS= read -r f; do
-      [ -n "$f" ] && git -C "$repo_root" add -- "$f"
+      [ -n "$f" ] && git -C "$memories_dir" add -- "$f"
     done <<< "$stageable"
 
     # Commit only if something actually ended up staged.
-    if ! git -C "$repo_root" diff --cached --quiet 2>/dev/null; then
-      host=$(hostname -s 2>/dev/null || hostname)
+    if ! git -C "$memories_dir" diff --cached --quiet -- memories/ 2>/dev/null; then
+      host=$(hostname -s)
       date_str=$(date +%F)
-      git -C "$repo_root" commit -m "auto: memories from $host $date_str" --quiet || exit 0
+      if git -C "$memories_dir" commit -m "auto: memories from $host $date_str" --quiet; then
+        committed=1
+      else
+        echo "Shared memories: commit failed (pre-commit hook or git config?); will retry on next Stop."
+        exit 0
+      fi
     fi
   fi
 fi
 
-# ── Rebase + push (re-check unpushed since we may have just committed) ──
-unpushed=0
-if git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-  unpushed=$(git -C "$repo_root" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
+# Re-check unpushed only if we just committed — HEAD didn't move otherwise,
+# so the count from the fast-exit block above is still accurate.
+if [ "$committed" -eq 1 ]; then
+  unpushed=0
+  if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    unpushed=$(git -C "$memories_dir" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
+  fi
 fi
 [ "$unpushed" -eq 0 ] && exit 0
 
-if ! git -C "$repo_root" pull --rebase --autostash --quiet 2>/dev/null; then
-  git -C "$repo_root" rebase --abort 2>/dev/null || true
+if ! git -C "$memories_dir" pull --rebase --autostash --quiet 2>/dev/null; then
+  git -C "$memories_dir" rebase --abort 2>/dev/null || true
   echo "Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories."
   exit 0
 fi
 
-git -C "$repo_root" push --quiet 2>/dev/null || echo "Shared memories: auto-push failed (auth or network). Will retry on next Stop."
+git -C "$memories_dir" push --quiet 2>/dev/null || echo "Shared memories: auto-push failed (auth or network). Will retry on next Stop."

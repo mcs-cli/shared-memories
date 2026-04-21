@@ -173,14 +173,15 @@ On engineer disks, the pack materializes as:
 
 ```
 <project>/.claude/
-├── .memories-repo/                  # hidden sparse clone of MEMORIES_BRANCH
+├── .memories-repo/                  # sparse clone of MEMORIES_BRANCH
+│   ├── README.md, LICENSE, etc.     # any root-level files your repo ships
 │   └── memories/
 │       ├── learning_*.md
 │       └── decision_*.md
 └── memories -> .memories-repo/memories   # symlink Claude Code reads
 ```
 
-The clone uses `--filter=blob:none --single-branch --sparse` so only the memory markdowns materialize on disk (~1 MB typical) — pack plumbing (`techpack.yaml`, `hooks/`, `scripts/`) stays in git history but never hits the working tree.
+The clone uses `--sparse --filter=blob:none --single-branch` so only the `memories/` subtree plus any root-level files your repo ships (README, LICENSE) materialize on disk (~1 MB typical). Every hook git call is scoped with `-- memories/` pathspec, so root-level files are visible but never touched by the auto-commit/auto-push machinery — your teammates can edit the memories repo's README without tripping the guardrail.
 
 ---
 
@@ -198,18 +199,11 @@ If any step fails partway, an `ERR` trap restores the original folder from the b
 
 ---
 
-## Optional: Working Around Default-Branch Rulesets
+## Optional: Push to a Side Branch
 
-If your org enforces PR + ticket + approval on every default branch, every Claude Stop auto-pushing to it would turn each memory into a PR. That kills adoption.
+If your org enforces PR + ticket + approval on the default branch of your memories repo, every Claude Stop auto-pushing to it would turn each memory into a PR. That kills adoption.
 
-**Workaround**: put everything on a side branch that no ruleset targets:
-
-| Branch | Content | Push policy |
-|---|---|---|
-| `main` (default) | Stub README pointing at the side branch | PR-gated (org ruleset applies). Untouched after init. |
-| `memories` (side) | Pack files + memory markdowns | **Free push**, no ruleset matches it |
-
-Set `MEMORIES_BRANCH=memories` at install. Engineers push freely to the side branch; the default branch stays ruleset-compliant and no one ever touches it.
+**Workaround**: set `MEMORIES_BRANCH` to a side branch (e.g., `memories`) that no ruleset targets. Auto-push goes there; the default branch stays untouched and ruleset-compliant.
 
 ### Protect the Side Branch at the Repo Level
 

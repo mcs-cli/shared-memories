@@ -66,7 +66,7 @@ if [ -e "$memories_link" ] && [ ! -L "$memories_link" ]; then
   else
     ts=$(date +%Y%m%d-%H%M%S)
     migration_backup="$MCS_PROJECT_PATH/.claude/.memories-migration-$ts"
-    count=$(ls -1 "$memories_link" 2>/dev/null | wc -l | tr -d ' ')
+    count=$(ls -1A "$memories_link" 2>/dev/null | wc -l | tr -d ' ')
     echo "Found pre-existing $memories_link with $count entr(y/ies) — staging for migration..."
     echo "  → backing up to $migration_backup"
     mv "$memories_link" "$migration_backup"
@@ -90,14 +90,12 @@ else
   # ─── Case 5: nothing exists — first-time setup. ──────────────────────────
   echo "Cloning shared memories (branch '$branch', sparse) into $repo_dir..."
   git clone \
-    --no-checkout \
+    --sparse \
     --filter=blob:none \
     --branch "$branch" \
     --single-branch \
     "$repo_url" "$repo_dir"
-  git -C "$repo_dir" sparse-checkout init --cone
   git -C "$repo_dir" sparse-checkout set memories
-  git -C "$repo_dir" checkout "$branch"
   link_memories
 fi
 
@@ -149,30 +147,30 @@ trap - ERR
 # all-or-nothing guardrail will catch them again if the engineer ignores the
 # nudge, so the pressure to rename is consistent.
 if [ "${imported:-0}" -gt 0 ]; then
-  repo_root=$(git -C "$memories_link" rev-parse --show-toplevel 2>/dev/null)
+  # keep in sync with hooks/memories_autopush.sh allowed_pattern
   allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
 
-  untracked=$(git -C "$repo_root" ls-files --others --exclude-standard --full-name 2>/dev/null | grep -v '^$' || true)
+  untracked=$(git -C "$repo_dir" ls-files --others --exclude-standard --full-name -- memories/ 2>/dev/null | grep -v '^$' || true)
   good_files=$(echo "$untracked" | grep -E  "$allowed_pattern" || true)
   bad_files=$( echo "$untracked" | grep -Ev "$allowed_pattern" || true)
 
   if [ -n "$good_files" ]; then
     while IFS= read -r f; do
-      [ -n "$f" ] && git -C "$repo_root" add -- "$f"
+      [ -n "$f" ] && git -C "$repo_dir" add -- "$f"
     done <<< "$good_files"
 
-    host=$(hostname -s 2>/dev/null || hostname)
-    git -C "$repo_root" commit -m "auto: migrate local memories from $host" --quiet
+    host=$(hostname -s)
+    git -C "$repo_dir" commit -m "auto: migrate local memories from $host" --quiet
 
     # Rebase in case teammates pushed while we were cloning / migrating, then push.
-    if git -C "$repo_root" pull --rebase --autostash --quiet 2>/dev/null; then
-      if git -C "$repo_root" push --quiet 2>/dev/null; then
+    if git -C "$repo_dir" pull --rebase --autostash --quiet 2>/dev/null; then
+      if git -C "$repo_dir" push --quiet 2>/dev/null; then
         echo "Pushed migrated memories to the shared branch."
       else
         echo "Migrated memories committed locally; push failed (auth or network?). The next Stop hook will retry."
       fi
     else
-      git -C "$repo_root" rebase --abort 2>/dev/null || true
+      git -C "$repo_dir" rebase --abort 2>/dev/null || true
       echo "Migrated memories committed locally; rebase conflict blocked the push. The next Stop hook will retry."
     fi
   fi
