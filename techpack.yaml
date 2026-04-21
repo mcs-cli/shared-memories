@@ -1,0 +1,73 @@
+schemaVersion: 1
+identifier: shared-memories
+displayName: "Shared Memories"
+description: Team-shared Claude Code memories via a dedicated git repo
+author: Bruno Guidolim
+minMCSVersion: "2026.4.12"
+
+prompts:
+  - key: MEMORIES_REPO_URL
+    type: input
+    label: "Git URL of the shared memories repo (SSH or HTTPS)"
+
+  - key: MEMORIES_BRANCH
+    type: input
+    label: "Branch on the shared repo that holds memory files and this pack"
+    default: "main"
+
+  - key: MEMORIES_DIR_NAME
+    type: input
+    label: "Folder name inside .claude/ that Claude Code reads memories from"
+    default: "memories"
+
+components:
+  # ── Dependencies ──────────────────────────────────────────
+  - id: jq
+    description: JSON processor required by hook scripts
+    brew: jq
+
+  # ── Hooks ─────────────────────────────────────────────────
+  - id: hook-memories-pull
+    displayName: Pull shared memories and flag stuck state
+    description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, emits a system-reminder warning so the engineer knows.
+    dependencies: [jq]
+    hookEvent: SessionStart
+    hookTimeout: 15
+    hook:
+      source: hooks/memories_pull.sh
+      destination: memories_pull.sh
+
+  - id: hook-memories-autopush
+    displayName: Auto-commit and push shared memories
+    description: After Claude stops, auto-commits and pushes new/modified memory files. Unconventional filenames halt everything until fixed. Deletions are never auto-pushed (left for manual review) but don't block coexisting additions/modifications.
+    dependencies: [jq]
+    hookEvent: Stop
+    hookTimeout: 30
+    hookAsync: true
+    hook:
+      source: hooks/memories_autopush.sh
+      destination: memories_autopush.sh
+
+  # ── Configuration ─────────────────────────────────────────
+  - id: gitignore
+    description: Globally ignore the default memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos. If you override MEMORIES_DIR_NAME, add `.claude/<your-name>` to your gitignore manually.
+    isRequired: true
+    gitignore:
+      - .claude/memories
+      - .claude/.memories-repo
+      - .claude/.memories-migration-*
+
+configureProject:
+  script: scripts/configure-memories.sh
+
+supplementaryDoctorChecks:
+  - type: shellScript
+    name: Shared memories setup (checkout + symlink)
+    section: Shared Memories
+    command: scripts/doctor-memories.sh
+    fixScript: scripts/configure-memories.sh
+
+  - type: shellScript
+    name: Shared memories remote access (auth + reachability)
+    section: Shared Memories
+    command: scripts/doctor-memories-remote.sh
