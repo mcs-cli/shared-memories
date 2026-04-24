@@ -22,10 +22,17 @@ repo_dir="$MCS_PROJECT_PATH/.claude/.memories-repo"
 repo_url="${MCS_RESOLVED_MEMORIES_REPO_URL:-}"
 branch="${MCS_RESOLVED_MEMORIES_BRANCH:-main}"
 migration_backup=""
+# Initialized before the ERR trap installs — trap body reads it under `set -u`.
+created_repo_dir=0
 
 if [ -z "$repo_url" ]; then
   echo "MEMORIES_REPO_URL not resolved; skipping memories clone." >&2
   exit 0
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git is required for mcs-shared-memories setup but was not found on PATH." >&2
+  exit 1
 fi
 
 link_memories() {
@@ -33,11 +40,20 @@ link_memories() {
 }
 
 # If setup fails AFTER we've moved the user's existing memories aside, put them
-# back so we never leave an engineer with no memory files at all.
+# back so we never leave an engineer with no memory files at all. Also sweeps
+# up a half-written $repo_dir so a failed clone can't jam Case 4 on the retry.
 restore_backup_on_error() {
+  if [ "$created_repo_dir" = "1" ] && [ -d "$repo_dir" ] && [ ! -d "$repo_dir/.git" ]; then
+    rm -rf "$repo_dir"
+  fi
+
   if [ -n "$migration_backup" ] && [ -d "$migration_backup" ] && [ ! -L "$memories_link" ]; then
     echo "Setup failed — restoring your original memories from $migration_backup to $memories_link" >&2
-    mv "$migration_backup" "$memories_link" || true
+    if ! mv "$migration_backup" "$memories_link"; then
+      echo "ERROR: Automatic restore failed. Your memories are preserved at:" >&2
+      echo "  $migration_backup" >&2
+      echo "Move this directory back to $memories_link manually." >&2
+    fi
   fi
 }
 trap restore_backup_on_error ERR
@@ -47,6 +63,26 @@ if [ -L "$memories_link" ] && \
    git -C "$memories_link" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Shared memories already linked — leaving as-is."
   exit 0
+fi
+
+# ─── Preflight: probe the remote BEFORE any filesystem mutation. ───────────
+# Catches no-SSH-key, no-network, revoked access, wrong URL, and missing
+# branch. Mirrors doctor-memories-remote.sh so both surfaces give the same
+# diagnostic. Healthy re-runs (Case 1 above) skip this and stay offline-safe.
+if ! err=$(git ls-remote --exit-code --heads "$repo_url" "$branch" 2>&1 >/dev/null); then
+  echo "Cannot set up shared memories — remote is unreachable or branch missing." >&2
+  echo "  remote: $repo_url" >&2
+  echo "  branch: $branch" >&2
+  echo "  error:  $err" >&2
+  echo "" >&2
+  echo "Common causes:" >&2
+  echo "  - SSH key not loaded — try: ssh-add ~/.ssh/<your-key>" >&2
+  echo "  - Network offline or VPN disconnected" >&2
+  echo "  - Access revoked on the shared repo" >&2
+  echo "  - Branch '$branch' does not exist on the remote" >&2
+  echo "" >&2
+  echo "Your existing memories at $memories_link have not been touched." >&2
+  exit 1
 fi
 
 # ─── Case 2: pre-existing non-symlink at the memories path ─────────────────
@@ -89,6 +125,7 @@ else
 
   # ─── Case 5: nothing exists — first-time setup. ──────────────────────────
   echo "Cloning shared memories (branch '$branch', sparse) into $repo_dir..."
+  created_repo_dir=1
   git clone \
     --sparse \
     --filter=blob:none \
