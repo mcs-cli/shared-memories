@@ -37,6 +37,15 @@ fi
 
 link_memories() {
   ln -sfn .memories-repo/memories "$memories_link"
+  # Fail fast if the target doesn't resolve. Without this check, a dangling
+  # symlink would survive long enough for the migration import loop below to
+  # `mv` files into a non-existent directory, then the ERR trap fires too late
+  # to give a clear diagnostic.
+  if [ ! -d "$memories_link/" ]; then
+    echo "ERROR: $memories_link → .memories-repo/memories points to a missing directory." >&2
+    echo "  The sparse checkout at $repo_dir did not materialize memories/." >&2
+    return 1
+  fi
 }
 
 # If setup fails AFTER we've moved the user's existing memories aside, put them
@@ -47,7 +56,15 @@ restore_backup_on_error() {
     rm -rf "$repo_dir"
   fi
 
-  if [ -n "$migration_backup" ] && [ -d "$migration_backup" ] && [ ! -L "$memories_link" ]; then
+  # A dangling symlink (link exists, target doesn't) must count as "not present"
+  # here — otherwise the original `[ ! -L ]` guard skipped restore and stranded
+  # the engineer's memories in the migration backup. Sweep the broken link first
+  # so `mv backup memories` doesn't fail with "Not a directory".
+  if [ -L "$memories_link" ] && [ ! -e "$memories_link" ]; then
+    rm -f "$memories_link"
+  fi
+
+  if [ -n "$migration_backup" ] && [ -d "$migration_backup" ] && [ ! -e "$memories_link" ]; then
     echo "Setup failed — restoring your original memories from $migration_backup to $memories_link" >&2
     if ! mv "$migration_backup" "$memories_link"; then
       echo "ERROR: Automatic restore failed. Your memories are preserved at:" >&2
@@ -133,6 +150,12 @@ else
     --single-branch \
     "$repo_url" "$repo_dir"
   git -C "$repo_dir" sparse-checkout set memories
+  # Bootstrap case: the remote branch may be empty (no memories/ tree yet) on
+  # first-ever pack adoption. Sparse-checkout exits 0 but materializes nothing,
+  # so the symlink we're about to create would dangle and the migration import
+  # below would fail with "No such file or directory". mkdir -p is a no-op once
+  # the directory is tracked.
+  mkdir -p "$repo_dir/memories"
   link_memories
 fi
 
