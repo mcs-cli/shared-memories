@@ -14,11 +14,11 @@ ignore:
 prompts:
   - key: MEMORIES_REPO_URL
     type: input
-    label: "Git URL of the shared memories repo (SSH or HTTPS)"
+    label: "Clone URL for the shared memories repo (e.g. git@github.com:org/memories.git)"
 
   - key: MEMORIES_BRANCH
     type: input
-    label: "Branch on the shared repo that holds memory files and this pack"
+    label: "Branch name on the shared repo that holds memory files and this pack (e.g. main)"
     default: "main"
 
 components:

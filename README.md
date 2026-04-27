@@ -150,7 +150,7 @@ During `mcs sync`, you'll be prompted for:
 
 | Prompt | What It Does | Default |
 |--------|-------------|---------|
-| **MEMORIES_REPO_URL** | Git URL of the shared memories repo (SSH or HTTPS) | *(required)* |
+| **MEMORIES_REPO_URL** | Clone URL for the shared memories repo, e.g. `git@github.com:org/memories.git` | *(required)* |
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
 
 ---
