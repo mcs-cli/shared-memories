@@ -5,6 +5,12 @@ description: Team-shared Claude Code memories via a dedicated git repo
 author: Bruno Guidolim
 minMCSVersion: "2026.4.12"
 
+# Doctor-check scripts are wired via `supplementaryDoctorChecks.command`, which
+# the unreferenced-file heuristic doesn't inspect. Silence those warnings.
+ignore:
+  - scripts/doctor-memories.sh
+  - scripts/doctor-memories-remote.sh
+
 prompts:
   - key: MEMORIES_REPO_URL
     type: input
