@@ -51,7 +51,7 @@ components:
       destination: memories_pull.sh
 
   - id: hook-memories-autopush
-    displayName: Auto-commit and push shared memories
+    displayName: Sync shared memories
     description: After Claude stops, handles new/modified memory files according to MEMORIES_AUTOPUSH_MODE (auto/full/review). Default auto matches today — writes auto-pushed, deletions parked for manual review. Unconventional filenames halt everything until fixed in all modes. See README for the mode reference.
     dependencies: [jq]
     hookEvent: Stop

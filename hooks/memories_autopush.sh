@@ -229,10 +229,19 @@ if [ "$mode" = "review" ]; then
     echo "       Diff: git -C .claude/.memories-repo diff -- $f"
   done <<< "$am_numstats"
 
+  # Per-file `git log` is one process per deletion. For typical deletions
+  # (1–5 files) the cost is negligible; for large memory-audit runs we cap
+  # the timestamp lookups so latency stays predictable.
+  del_idx=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    last=$(git -C "$memories_dir" log -1 --format=%cr HEAD -- "$f" 2>/dev/null || echo "?")
-    echo "- DEL  $f  (last modified $last)"
+    del_idx=$((del_idx + 1))
+    if [ "$del_idx" -le 20 ]; then
+      last=$(git -C "$memories_dir" log -1 --format=%cr HEAD -- "$f" 2>/dev/null || echo "?")
+      echo "- DEL  $f  (last modified $last)"
+    else
+      echo "- DEL  $f"
+    fi
     echo "       Recover: git -C .claude/.memories-repo checkout HEAD -- $f"
   done <<< "$deleted_files"
 
@@ -246,7 +255,8 @@ if [ "$mode" = "review" ]; then
   echo "             && git -C .claude/.memories-repo commit -m 'review: <reason>' \\"
   echo "             && git -C .claude/.memories-repo pull --rebase --autostash \\"
   echo "             && git -C .claude/.memories-repo push"
-  echo "Discard local changes: git -C .claude/.memories-repo checkout -- memories/"
+  echo "Discard local changes: git -C .claude/.memories-repo checkout -- memories/ \\"
+  echo "                       && git -C .claude/.memories-repo clean -f -- memories/"
 
   if [ -n "$current_hash" ]; then
     # Atomic write so a killed hook can't leave an empty state file behind.
