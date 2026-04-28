@@ -21,8 +21,29 @@ cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
+# keep in sync with hooks/memories_autopush.sh mode case
+# Same resolution rules as the autopush hook, but no warning on unknown values:
+# this hook emits user-visible output only via the final additionalContext JSON,
+# so a stray echo here would be swallowed. The warning fires from the Stop hook.
+case "${MEMORIES_AUTOPUSH_MODE:-}" in
+  ""|auto) mode=auto ;;
+  full)    mode=full ;;
+  review)  mode=review ;;
+  *)       mode=auto ;;
+esac
+
 # Fast-forward; ignore errors (covered by the state check below).
 git -C "$memories_dir" pull --ff-only --quiet >/dev/null 2>&1 || true
+
+# In review mode, reset the Stop hook's dedupe state once per session so any
+# pending changes the user previously ignored re-surface in the new session.
+# Without this reset, an unresolved review report would stay silent forever
+# after its hash settled. The state file lives outside the sparse cone, so
+# git ignores it and there's nothing to clean up beyond the rm.
+if [ "$mode" = "review" ]; then
+  # keep in sync with hooks/memories_autopush.sh review_state_file path
+  rm -f "$memories_dir/.review-shown" 2>/dev/null || true
+fi
 
 # Detect lingering state: uncommitted memory files OR local ahead of upstream.
 # keep in sync with hooks/memories_autopush.sh uncommitted/unpushed check
@@ -39,7 +60,11 @@ parts=()
 [ "$unpushed" -gt 0 ]    && parts+=("$unpushed unpushed commit(s)")
 joined=$(printf '%s, ' "${parts[@]}" | sed 's/, $//')
 
-msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/(learning_|decision_)*.md). The next Stop will retry automatically."
+if [ "$mode" = "review" ]; then
+  msg="Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands."
+else
+  msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/(learning_|decision_)*.md). The next Stop will retry automatically."
+fi
 
 jq -n --arg ctx "$msg" \
   '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'

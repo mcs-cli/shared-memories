@@ -21,6 +21,18 @@ prompts:
     label: "Branch name on the shared repo that holds memory files and this pack (e.g. main)"
     default: "main"
 
+  - key: MEMORIES_AUTOPUSH_MODE
+    type: select
+    label: "Stop-hook auto-push behavior"
+    options:
+      - value: auto
+        label: "auto — writes auto-pushed, deletions parked (default)"
+      - value: full
+        label: "full — writes AND deletions auto-pushed"
+      - value: review
+        label: "review — nothing auto, per-turn pending-changes report"
+    default: auto
+
 components:
   # ── Dependencies ──────────────────────────────────────────
   - id: jq
@@ -40,7 +52,7 @@ components:
 
   - id: hook-memories-autopush
     displayName: Auto-commit and push shared memories
-    description: After Claude stops, auto-commits and pushes new/modified memory files. Unconventional filenames halt everything until fixed. Deletions are never auto-pushed (left for manual review) but don't block coexisting additions/modifications.
+    description: After Claude stops, handles new/modified memory files according to MEMORIES_AUTOPUSH_MODE (auto/full/review). Default auto matches today — writes auto-pushed, deletions parked for manual review. Unconventional filenames halt everything until fixed in all modes. See README for the mode reference.
     dependencies: [jq]
     hookEvent: Stop
     hookTimeout: 30
@@ -49,7 +61,23 @@ components:
       source: hooks/memories_autopush.sh
       destination: memories_autopush.sh
 
+  - id: hook-memories-announce
+    displayName: Surface review-mode memory writes to Claude
+    description: PostToolUse hook that injects additionalContext after a memory file is written, only when MEMORIES_AUTOPUSH_MODE=review. Lets Claude proactively mention pending memory review in conversation. Silent in auto/full modes.
+    dependencies: [jq]
+    hookEvent: PostToolUse
+    hookMatcher: Write|Edit|MultiEdit
+    hookTimeout: 5
+    hook:
+      source: hooks/memories_announce.sh
+      destination: memories_announce.sh
+
   # ── Configuration ─────────────────────────────────────────
+  - id: settings
+    displayName: Default auto-push mode
+    description: Writes the chosen MEMORIES_AUTOPUSH_MODE value into .claude/settings.local.json so the Stop hook reads it. Re-run `mcs sync` to change modes, or edit settings.local.json directly.
+    settingsFile: config/settings.json
+
   - id: gitignore
     description: Globally ignore the memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos
     isRequired: true

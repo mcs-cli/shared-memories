@@ -2,19 +2,20 @@
 set -euo pipefail
 trap 'exit 0' ERR
 
-# Stop hook: auto-commit and push shared memories.
+# Stop hook: handle shared-memory file changes per MEMORIES_AUTOPUSH_MODE mode.
 #
-# Two guardrails protect the team KB:
-#   1. Filename pattern — only memories/(learning_|decision_)<name>.md get auto-pushed.
-#      A stray "wip.md" or "notes.md" never silently propagates, and the hook
-#      refuses everything until the offending name is fixed.
-#   2. Deletion gate — deletions are NEVER auto-pushed. The hook still auto-pushes
-#      any coexisting additions/modifications (so memory-audit + a new memory in
-#      the same session don't block each other), but the deleted files stay in
-#      the working tree for manual review. This prevents a local `rm` from
-#      silently wiping team knowledge.
+# Modes (read from .claude/settings.local.json's `env` block — mcs writes the
+# value from the techpack prompt during `mcs sync`):
 #
-# After memory-audit (from mcs-cli/memory) intentionally removes stale files:
+#   auto    — writes auto-pushed; deletions parked for manual review (default)
+#   full    — writes AND deletions auto-pushed
+#   review  — nothing auto; prints a per-turn pending-changes report
+#
+# In every mode, files that don't match memories/(learning_|decision_)<name>.md
+# halt everything until renamed — naming policy is orthogonal to push policy.
+# Unset, empty, or unknown values fall through to `auto`.
+#
+# After memory-audit (auto mode only) intentionally removes stale files:
 #   git -C .claude/.memories-repo/memories commit -am "audit: remove stale memories" && \
 #     git -C .claude/.memories-repo/memories push
 
@@ -27,11 +28,28 @@ echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
 cwd=$(echo "$input_data" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$(pwd)"
 
-# Anchor on the hidden sparse checkout. The memories repo may contain
-# root-level files (README etc.) — every working-tree git call below is
-# scoped with `-- memories/` so those files can't trip the guardrail.
+# Anchor on the hidden sparse checkout. Every working-tree git call below is
+# scoped with `-- memories/` so root-level repo files (README etc.) can't trip
+# the guardrail.
 memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# ── Resolve mode ─────────────────────────────────────────────────────────
+# keep in sync with hooks/memories_pull.sh mode case
+case "${MEMORIES_AUTOPUSH_MODE:-}" in
+  ""|auto) mode=auto ;;
+  full)    mode=full ;;
+  review)  mode=review ;;
+  *)
+    echo "Shared memories: unknown MEMORIES_AUTOPUSH_MODE='${MEMORIES_AUTOPUSH_MODE}' — falling back to auto."
+    mode=auto
+    ;;
+esac
+
+# Sibling of the sparse cone (cone = memories/), so git neither tracks nor
+# pushes this file; .claude/.memories-repo is wholesale gitignored by the
+# parent project (see techpack.yaml). Only used in review mode.
+review_state_file="$memories_dir/.review-shown"
 
 # ── Fast exit if nothing to sync ─────────────────────────────────────────
 # keep in sync with hooks/memories_pull.sh uncommitted/unpushed check
@@ -40,13 +58,26 @@ unpushed=0
 if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
   unpushed=$(git -C "$memories_dir" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
 fi
-[ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ] && exit 0
 
-# keep in sync with scripts/configure-memories.sh allowed_pattern
-allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
-committed=0
+if [ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ]; then
+  # Nothing pending — wipe stale review-mode state so the next change reprints
+  # fresh instead of being suppressed by a hash whose pending set is gone.
+  [ "$mode" = "review" ] && [ -f "$review_state_file" ] && rm -f "$review_state_file"
+  exit 0
+fi
+
+# Default empty so the review block sees consistent vars even when the
+# only pending state is an unpushed commit (no dirty files).
+untracked=""
+am_numstats=""
+added_modified=""
+deleted_files=""
 
 if [ "$uncommitted" -gt 0 ]; then
+  # ── Gather dirty file lists (shared by review and auto/full) ───────────
+  # keep in sync with scripts/configure-memories.sh allowed_pattern
+  allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
+
   untracked=$(git -C "$memories_dir" ls-files --others --exclude-standard --full-name -- memories/ 2>/dev/null || true)
   dirty_files=$(
     {
@@ -55,7 +86,7 @@ if [ "$uncommitted" -gt 0 ]; then
     } | grep -v '^$' | sort -u
   )
 
-  # ── Guardrail 1: reject unconventional filenames (blocks everything) ──
+  # ── Filename guardrail (blocks ALL modes) ─────────────────────────────
   bad_files=$(echo "$dirty_files" | grep -Ev "$allowed_pattern" || true)
   if [ -n "$bad_files" ]; then
     echo "Shared memories: skipping auto-push — unconventional filename(s):"
@@ -64,46 +95,150 @@ if [ "$uncommitted" -gt 0 ]; then
     exit 0
   fi
 
-  # ── Guardrail 2: never auto-commit deletions — but don't block add/mods ──
+  # Single --numstat call gives us both paths and per-file stats (used by the
+  # review report below). For deletions we only need names — numstat would
+  # include them with `-`/`-` stats, simpler to ask for names directly.
+  am_numstats=$(git -C "$memories_dir" diff --numstat --diff-filter=AM HEAD -- memories/ 2>/dev/null || true)
+  added_modified=$(printf '%s\n' "$am_numstats" | awk 'NF { print $3 }')
   deleted_files=$(git -C "$memories_dir" diff --name-only --diff-filter=D HEAD -- memories/ 2>/dev/null || true)
-  if [ -n "$deleted_files" ]; then
-    del_count=$(echo "$deleted_files" | wc -l | tr -d ' ')
-    echo "Shared memories: $del_count deleted memory file(s) left for manual review (not auto-pushed):"
-    echo "$deleted_files" | sed 's/^/  - /'
-    echo "If intentional (e.g. after memory-audit), push manually:"
-    echo "  git -C .claude/.memories-repo/memories commit -am 'audit: remove stale memories' && git -C .claude/.memories-repo/memories push"
+fi
+
+# ── Mode: review ─────────────────────────────────────────────────────────
+if [ "$mode" = "review" ]; then
+  # Build canonical pending-state string. Hash is over <status>\t<path> lines
+  # plus an UNPUSHED marker — deliberately content-agnostic, so consecutive
+  # edits with the same diff status don't trigger reprints. The report's git
+  # commands let the user inspect current content on demand.
+  state_lines=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    state_lines+="NEW	$f"$'\n'
+  done <<< "$untracked"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    state_lines+="MOD	$f"$'\n'
+  done <<< "$added_modified"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    state_lines+="DEL	$f"$'\n'
+  done <<< "$deleted_files"
+  if [ "$unpushed" -gt 0 ]; then
+    head_sha=$(git -C "$memories_dir" rev-parse HEAD 2>/dev/null || echo "unknown")
+    state_lines+="UNPUSHED	$head_sha	$unpushed"$'\n'
+  fi
+  state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort)
+
+  if [ -z "$state_canonical" ]; then
+    exit 0
   fi
 
-  # Stage only additions/modifications (tracked AM + untracked). Deletions are
-  # left in the working tree for the user to review and commit manually.
-  stageable=$(
-    {
-      git -C "$memories_dir" diff --name-only --diff-filter=AM HEAD -- memories/ 2>/dev/null || true
-      printf '%s\n' "$untracked"
-    } | grep -v '^$' | sort -u
-  )
+  # Dedupe: skip if the current pending set was already reported this session.
+  # SessionStart hook deletes $review_state_file once per session so an
+  # ignored report re-surfaces at the start of each new session.
+  current_hash=$(printf '%s' "$state_canonical" | shasum -a 256 | awk '{print $1}')
+  if [ -f "$review_state_file" ]; then
+    last_hash=$(tr -d '[:space:]' < "$review_state_file" 2>/dev/null || true)
+    if [ "$current_hash" = "$last_hash" ]; then
+      exit 0
+    fi
+  fi
 
-  if [ -n "$stageable" ]; then
-    while IFS= read -r f; do
-      [ -n "$f" ] && git -C "$memories_dir" add -- "$f"
-    done <<< "$stageable"
+  # Header parts — files and unpushed commits are different kinds of items, so
+  # describe them separately rather than collapsing into a single "items" count.
+  file_count=$(printf '%s\n%s\n%s\n' "$untracked" "$added_modified" "$deleted_files" | grep -cv '^$' || true)
+  parts=()
+  [ "$file_count" -gt 0 ] && parts+=("$file_count pending file(s) in memories/")
+  [ "$unpushed" -gt 0 ]   && parts+=("$unpushed unpushed commit(s)")
+  desc=$(printf '%s and ' "${parts[@]}")
+  echo "Shared memories [review mode]: ${desc% and }"
 
-    # Commit only if something actually ended up staged.
-    if ! git -C "$memories_dir" diff --cached --quiet -- memories/ 2>/dev/null; then
-      host=$(hostname -s)
-      date_str=$(date +%F)
-      if git -C "$memories_dir" commit -m "auto: memories from $host $date_str" --quiet; then
-        committed=1
-      else
-        echo "Shared memories: commit failed (pre-commit hook or git config?); will retry on next Stop."
-        exit 0
-      fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    preview=$(grep -m1 -v '^[[:space:]]*$' "$memories_dir/$f" 2>/dev/null || true)
+    preview=${preview:0:80}
+    echo "+ NEW  file://$memories_dir/$f"
+    [ -n "$preview" ] && echo "       \"$preview\""
+  done <<< "$untracked"
+
+  # Stats batched into am_numstats above — no per-file git invocation here.
+  while IFS=$'\t' read -r added deleted f; do
+    [ -n "$f" ] || continue
+    echo "~ MOD  file://$memories_dir/$f  (+$added -$deleted)"
+    echo "       Diff: git -C .claude/.memories-repo diff -- $f"
+  done <<< "$am_numstats"
+
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    last=$(git -C "$memories_dir" log -1 --format=%cr HEAD -- "$f" 2>/dev/null || echo "?")
+    echo "- DEL  $f  (last modified $last)"
+    echo "       Recover: git -C .claude/.memories-repo checkout HEAD -- $f"
+  done <<< "$deleted_files"
+
+  echo ""
+  if [ "$unpushed" -gt 0 ]; then
+    echo "  Note: $unpushed local commit(s) not yet on the remote."
+    echo "        Push: git -C .claude/.memories-repo pull --rebase --autostash && git -C .claude/.memories-repo push"
+    echo ""
+  fi
+  echo "Approve all: git -C .claude/.memories-repo add -A -- memories/ \\"
+  echo "             && git -C .claude/.memories-repo commit -m 'review: <reason>' \\"
+  echo "             && git -C .claude/.memories-repo pull --rebase --autostash \\"
+  echo "             && git -C .claude/.memories-repo push"
+  echo "Discard local changes: git -C .claude/.memories-repo checkout -- memories/"
+
+  printf '%s\n' "$current_hash" > "$review_state_file"
+  exit 0
+fi
+
+# ── Modes: auto / full ───────────────────────────────────────────────────
+committed=0
+
+if [ "$uncommitted" -gt 0 ]; then
+  if [ "$mode" = "auto" ]; then
+    if [ -n "$deleted_files" ]; then
+      del_count=$(echo "$deleted_files" | wc -l | tr -d ' ')
+      echo "Shared memories: $del_count deleted memory file(s) left for manual review (not auto-pushed):"
+      echo "$deleted_files" | sed 's/^/  - /'
+      echo "If intentional (e.g. after memory-audit), push manually:"
+      echo "  git -C .claude/.memories-repo/memories commit -am 'audit: remove stale memories' && git -C .claude/.memories-repo/memories push"
+    fi
+
+    # Stage adds/mods only — deletions stay in the working tree.
+    stageable=$(
+      {
+        printf '%s\n' "$added_modified"
+        printf '%s\n' "$untracked"
+      } | grep -v '^$' | sort -u
+    )
+
+    if [ -n "$stageable" ]; then
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        git -C "$memories_dir" add -- "$f"
+      done <<< "$stageable"
+    fi
+  else
+    git -C "$memories_dir" add -A -- memories/
+  fi
+
+  if ! git -C "$memories_dir" diff --cached --quiet -- memories/ 2>/dev/null; then
+    host=$(hostname -s)
+    date_str=$(date +%F)
+    if [ "$mode" = "full" ] && [ -n "$deleted_files" ]; then
+      msg="auto: memories from $host $date_str (includes deletions)"
+    else
+      msg="auto: memories from $host $date_str"
+    fi
+    if git -C "$memories_dir" commit -m "$msg" --quiet; then
+      committed=1
+    else
+      echo "Shared memories: commit failed (pre-commit hook or git config?); will retry on next Stop."
+      exit 0
     fi
   fi
 fi
 
-# Re-check unpushed only if we just committed — HEAD didn't move otherwise,
-# so the count from the fast-exit block above is still accurate.
+# Re-check unpushed only if we just committed — HEAD didn't move otherwise.
 if [ "$committed" -eq 1 ]; then
   unpushed=0
   if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
