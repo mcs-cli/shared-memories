@@ -136,6 +136,14 @@ if [ "$mode" = "review" ]; then
   state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort)
 
   if [ -z "$state_canonical" ]; then
+    # Filters captured nothing, but `git status` saw something pending.
+    # Could be a rename (R), typechange (T), conflict (UU/AA), or any future
+    # status our AM/D/untracked filters miss. Print a minimal fallback so the
+    # user never sees a silent no-op when changes are actually pending.
+    if [ "$uncommitted" -gt 0 ]; then
+      echo "Shared memories [review mode]: $uncommitted unclassified pending change(s) in memories/"
+      echo "  Inspect: git -C .claude/.memories-repo status -- memories/"
+    fi
     exit 0
   fi
 
@@ -182,14 +190,14 @@ if [ "$mode" = "review" ]; then
     [ -n "$f" ] || continue
     preview=$(grep -m1 -v '^[[:space:]]*$' "$memories_dir/$f" 2>/dev/null || true)
     preview=${preview:0:80}
-    echo "+ NEW  file://$memories_dir/$f"
+    echo "+ NEW  <file://$memories_dir/$f>"
     [ -n "$preview" ] && echo "       \"$preview\""
   done <<< "$untracked"
 
   # Stats batched into am_numstats above — no per-file git invocation here.
   while IFS=$'\t' read -r added deleted f; do
     [ -n "$f" ] || continue
-    echo "~ MOD  file://$memories_dir/$f  (+$added -$deleted)"
+    echo "~ MOD  <file://$memories_dir/$f>  (+$added -$deleted)"
     echo "       Diff: git -C .claude/.memories-repo diff -- $f"
   done <<< "$am_numstats"
 

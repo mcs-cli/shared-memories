@@ -240,10 +240,10 @@ Unset, empty, and unrecognized values fall through to `auto` (with a one-line wa
 In `review` mode, the hook prints a report on each turn end:
 
 ```
-Shared memories [review mode]: <N> pending item(s) in memories/
-+ NEW  file:///…/memories/learning_foo.md
+Shared memories [review mode]: <N> pending file(s) in memories/ and <M> unpushed commit(s)
++ NEW  <file:///…/memories/learning_foo.md>
        "<first non-empty line preview>"
-~ MOD  file:///…/memories/decision_bar.md  (+3 -1)
+~ MOD  <file:///…/memories/decision_bar.md>  (+3 -1)
        Diff: git -C .claude/.memories-repo diff -- memories/decision_bar.md
 - DEL  memories/learning_old.md  (last modified 3 weeks ago)
        Recover: git -C .claude/.memories-repo checkout HEAD -- memories/learning_old.md
