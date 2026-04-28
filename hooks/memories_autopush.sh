@@ -42,10 +42,11 @@ case "${MEMORIES_AUTOPUSH_MODE:-}" in
   ""|auto) mode=auto ;;
   full)    mode=full ;;
   review)  mode=review ;;
-  *)
-    echo "Shared memories: unknown MEMORIES_AUTOPUSH_MODE='${MEMORIES_AUTOPUSH_MODE}' — falling back to auto."
-    mode=auto
-    ;;
+  # Unknown values fall through silently here — the SessionStart hook
+  # (memories_pull.sh) surfaces a once-per-session warning via additionalContext.
+  # Repeating it on every Stop turn was noisy and useless (the user can't fix
+  # the env without restarting the session anyway).
+  *)       mode=auto ;;
 esac
 
 # Sibling of the sparse cone (cone = memories/), so git neither tracks nor
@@ -136,13 +137,18 @@ if [ "$mode" = "review" ]; then
   state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort)
 
   if [ -z "$state_canonical" ]; then
-    # Filters captured nothing, but `git status` saw something pending.
-    # Could be a rename (R), typechange (T), conflict (UU/AA), or any future
-    # status our AM/D/untracked filters miss. Print a minimal fallback so the
-    # user never sees a silent no-op when changes are actually pending.
+    # Filters captured nothing, but the fast-exit at the top of the hook
+    # confirmed at least one of uncommitted/unpushed is > 0. Possible causes:
+    # rename (R), typechange (T), conflict (UU/AA), or rev-parse HEAD failed
+    # (degenerate repo: detached, mid-rebase, corrupt refs). Print a minimal
+    # fallback so the user never sees a silent no-op when state is pending.
     if [ "$uncommitted" -gt 0 ]; then
       echo "Shared memories [review mode]: $uncommitted unclassified pending change(s) in memories/"
       echo "  Inspect: git -C .claude/.memories-repo status -- memories/"
+    fi
+    if [ "$unpushed" -gt 0 ]; then
+      echo "Shared memories [review mode]: $unpushed unpushed commit(s) (HEAD unresolvable — repo may be detached or mid-rebase)"
+      echo "  Inspect: git -C .claude/.memories-repo status"
     fi
     exit 0
   fi
@@ -153,6 +159,17 @@ if [ "$mode" = "review" ]; then
   # Hash via whatever's available — shasum (macOS), sha256sum (Linux), openssl,
   # or git hash-object as last resort. Different algorithms produce different
   # digests, but uniqueness within a session is all dedupe needs.
+  # Percent-encode characters that break terminal autolink detection in
+  # file:// URLs. Spaces are the common case (project paths like
+  # "/Users/x/My Code/foo"); #, ?, ( ) also break URL parsing in some terminals.
+  url_encode_path() {
+    local p="$1"
+    p=${p// /%20}
+    p=${p//\#/%23}
+    p=${p//\?/%3F}
+    printf '%s' "$p"
+  }
+
   hash_stdin() {
     if   command -v shasum    >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
     elif command -v sha256sum >/dev/null 2>&1; then sha256sum     | awk '{print $1}'
@@ -190,14 +207,14 @@ if [ "$mode" = "review" ]; then
     [ -n "$f" ] || continue
     preview=$(grep -m1 -v '^[[:space:]]*$' "$memories_dir/$f" 2>/dev/null || true)
     preview=${preview:0:80}
-    echo "+ NEW  <file://$memories_dir/$f>"
+    echo "+ NEW  <file://$(url_encode_path "$memories_dir/$f")>"
     [ -n "$preview" ] && echo "       \"$preview\""
   done <<< "$untracked"
 
   # Stats batched into am_numstats above — no per-file git invocation here.
   while IFS=$'\t' read -r added deleted f; do
     [ -n "$f" ] || continue
-    echo "~ MOD  <file://$memories_dir/$f>  (+$added -$deleted)"
+    echo "~ MOD  <file://$(url_encode_path "$memories_dir/$f")>  (+$added -$deleted)"
     echo "       Diff: git -C .claude/.memories-repo diff -- $f"
   done <<< "$am_numstats"
 
@@ -286,9 +303,11 @@ if [ "$committed" -eq 1 ]; then
 fi
 [ "$unpushed" -eq 0 ] && exit 0
 
-if ! pull_err=$(git -C "$memories_dir" pull --rebase --autostash --quiet 2>&1); then
+if ! pull_err=$(LC_ALL=C git -C "$memories_dir" pull --rebase --autostash --quiet 2>&1); then
   # Distinguish actual rebase conflicts from network/auth/etc. so the message
-  # matches reality. CONFLICT marker comes from git's own rebase output.
+  # matches reality. LC_ALL=C above forces English git output so the CONFLICT
+  # marker is stable — without it, French/German/Japanese locales emit
+  # CONFLIT/KONFLIKT/衝突 and the grep would misclassify the failure.
   if printf '%s' "$pull_err" | grep -qi 'conflict'; then
     if ! abort_err=$(git -C "$memories_dir" rebase --abort 2>&1); then
       echo "Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Resolve manually in .claude/.memories-repo/memories."

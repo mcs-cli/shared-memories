@@ -22,14 +22,16 @@ memories_dir="$cwd/.claude/.memories-repo"
 git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 # keep in sync with hooks/memories_autopush.sh mode case
-# Same resolution rules as the autopush hook, but no warning on unknown values:
-# this hook emits user-visible output only via the final additionalContext JSON,
-# so a stray echo here would be swallowed. The warning fires from the Stop hook.
+# Unknown values surface a one-time warning via additionalContext below
+# (echo here would be swallowed — SessionStart hooks only speak to Claude
+# through the JSON channel). Once-per-session beats every-turn noise.
+mode_warning=""
 case "${MEMORIES_AUTOPUSH_MODE:-}" in
   ""|auto) mode=auto ;;
   full)    mode=full ;;
   review)  mode=review ;;
-  *)       mode=auto ;;
+  *)       mode=auto
+           mode_warning="Shared memories: unknown MEMORIES_AUTOPUSH_MODE='${MEMORIES_AUTOPUSH_MODE}' — falling back to auto. Fix the value in .claude/settings.local.json (valid: auto, full, review) and restart the session." ;;
 esac
 
 # Fast-forward; ignore errors (covered by the state check below).
@@ -53,22 +55,34 @@ if git -C "$memories_dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/d
   unpushed=$(git -C "$memories_dir" rev-list '@{u}..HEAD' --count 2>/dev/null || echo 0)
 fi
 
-[ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ] && exit 0
-
-# Build summary without expanding an empty array (macOS Bash 3.2 + set -u).
-# The early exit above guarantees at least one of these is > 0.
-if [ "$uncommitted" -gt 0 ] && [ "$unpushed" -gt 0 ]; then
-  joined="$uncommitted uncommitted file(s), $unpushed unpushed commit(s)"
-elif [ "$uncommitted" -gt 0 ]; then
-  joined="$uncommitted uncommitted file(s)"
-else
-  joined="$unpushed unpushed commit(s)"
+# Build pending-state message if any. Without pending state, we still emit
+# the additionalContext when there's a mode_warning to surface.
+pending_msg=""
+if [ "$uncommitted" -gt 0 ] || [ "$unpushed" -gt 0 ]; then
+  if [ "$uncommitted" -gt 0 ] && [ "$unpushed" -gt 0 ]; then
+    joined="$uncommitted uncommitted file(s), $unpushed unpushed commit(s)"
+  elif [ "$uncommitted" -gt 0 ]; then
+    joined="$uncommitted uncommitted file(s)"
+  else
+    joined="$unpushed unpushed commit(s)"
+  fi
+  if [ "$mode" = "review" ]; then
+    pending_msg="Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands."
+  else
+    pending_msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/(learning_|decision_)*.md). The next Stop will retry automatically."
+  fi
 fi
 
-if [ "$mode" = "review" ]; then
-  msg="Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands."
+# Combine warning and pending into one additionalContext payload, or exit
+# silently if neither is present.
+if [ -n "$mode_warning" ] && [ -n "$pending_msg" ]; then
+  msg="$mode_warning"$'\n\n'"$pending_msg"
+elif [ -n "$mode_warning" ]; then
+  msg="$mode_warning"
+elif [ -n "$pending_msg" ]; then
+  msg="$pending_msg"
 else
-  msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/(learning_|decision_)*.md). The next Stop will retry automatically."
+  exit 0
 fi
 
 jq -n --arg ctx "$msg" \
