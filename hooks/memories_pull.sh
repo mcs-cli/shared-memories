@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-trap 'exit 0' ERR
+trap 'rc=$?; echo "memories_pull: aborted (rc=$rc) at line $LINENO: $BASH_COMMAND" >&2; exit 0' ERR
 
 # SessionStart hook: fast-forward shared memories and surface any state left
 # behind by a previous Stop hook's auto-push (auth failure, rebase conflict,
@@ -55,10 +55,15 @@ fi
 
 [ "$uncommitted" -eq 0 ] && [ "$unpushed" -eq 0 ] && exit 0
 
-parts=()
-[ "$uncommitted" -gt 0 ] && parts+=("$uncommitted uncommitted file(s)")
-[ "$unpushed" -gt 0 ]    && parts+=("$unpushed unpushed commit(s)")
-joined=$(printf '%s, ' "${parts[@]}" | sed 's/, $//')
+# Build summary without expanding an empty array (macOS Bash 3.2 + set -u).
+# The early exit above guarantees at least one of these is > 0.
+if [ "$uncommitted" -gt 0 ] && [ "$unpushed" -gt 0 ]; then
+  joined="$uncommitted uncommitted file(s), $unpushed unpushed commit(s)"
+elif [ "$uncommitted" -gt 0 ]; then
+  joined="$uncommitted uncommitted file(s)"
+else
+  joined="$unpushed unpushed commit(s)"
+fi
 
 if [ "$mode" = "review" ]; then
   msg="Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands."

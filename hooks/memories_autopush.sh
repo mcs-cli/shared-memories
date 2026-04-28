@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-trap 'exit 0' ERR
+# Hooks must never fail-fast onto Claude Code, but silent aborts are
+# undebuggable. Log the failing line/command to stderr before exiting 0.
+trap 'rc=$?; echo "memories_autopush: aborted (rc=$rc) at line $LINENO: $BASH_COMMAND" >&2; exit 0' ERR
 
 # Stop hook: handle shared-memory file changes per MEMORIES_AUTOPUSH_MODE mode.
 #
@@ -123,8 +125,13 @@ if [ "$mode" = "review" ]; then
     state_lines+="DEL	$f"$'\n'
   done <<< "$deleted_files"
   if [ "$unpushed" -gt 0 ]; then
-    head_sha=$(git -C "$memories_dir" rev-parse HEAD 2>/dev/null || echo "unknown")
-    state_lines+="UNPUSHED	$head_sha	$unpushed"$'\n'
+    # If rev-parse fails the repo is degenerate (detached, mid-rebase). Skip
+    # the dedupe contribution rather than poisoning the hash with a literal —
+    # otherwise two distinct broken states would collide on the same hash.
+    head_sha=$(git -C "$memories_dir" rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$head_sha" ]; then
+      state_lines+="UNPUSHED	$head_sha	$unpushed"$'\n'
+    fi
   fi
   state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort)
 
@@ -135,8 +142,22 @@ if [ "$mode" = "review" ]; then
   # Dedupe: skip if the current pending set was already reported this session.
   # SessionStart hook deletes $review_state_file once per session so an
   # ignored report re-surfaces at the start of each new session.
-  current_hash=$(printf '%s' "$state_canonical" | shasum -a 256 | awk '{print $1}')
-  if [ -f "$review_state_file" ]; then
+  # Hash via whatever's available — shasum (macOS), sha256sum (Linux), openssl,
+  # or git hash-object as last resort. Different algorithms produce different
+  # digests, but uniqueness within a session is all dedupe needs.
+  hash_stdin() {
+    if   command -v shasum    >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then sha256sum     | awk '{print $1}'
+    elif command -v openssl   >/dev/null 2>&1; then openssl dgst -sha256 | awk '{print $NF}'
+    else git hash-object --stdin
+    fi
+  }
+  current_hash=$(printf '%s' "$state_canonical" | hash_stdin)
+  if [ -z "$current_hash" ]; then
+    # All hashing tools failed somehow — print the report unconditionally
+    # rather than persisting an empty hash that would suppress forever.
+    echo "memories_autopush: hash tool unavailable; skipping dedupe." >&2
+  elif [ -f "$review_state_file" ]; then
     last_hash=$(tr -d '[:space:]' < "$review_state_file" 2>/dev/null || true)
     if [ "$current_hash" = "$last_hash" ]; then
       exit 0
@@ -146,11 +167,16 @@ if [ "$mode" = "review" ]; then
   # Header parts — files and unpushed commits are different kinds of items, so
   # describe them separately rather than collapsing into a single "items" count.
   file_count=$(printf '%s\n%s\n%s\n' "$untracked" "$added_modified" "$deleted_files" | grep -cv '^$' || true)
-  parts=()
-  [ "$file_count" -gt 0 ] && parts+=("$file_count pending file(s) in memories/")
-  [ "$unpushed" -gt 0 ]   && parts+=("$unpushed unpushed commit(s)")
-  desc=$(printf '%s and ' "${parts[@]}")
-  echo "Shared memories [review mode]: ${desc% and }"
+  # Build header without expanding an empty array — macOS Bash 3.2 + set -u
+  # treats "${parts[@]}" as unbound when parts=().
+  if [ "$file_count" -gt 0 ] && [ "$unpushed" -gt 0 ]; then
+    desc="$file_count pending file(s) in memories/ and $unpushed unpushed commit(s)"
+  elif [ "$file_count" -gt 0 ]; then
+    desc="$file_count pending file(s) in memories/"
+  else
+    desc="$unpushed unpushed commit(s)"
+  fi
+  echo "Shared memories [review mode]: $desc"
 
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -186,7 +212,11 @@ if [ "$mode" = "review" ]; then
   echo "             && git -C .claude/.memories-repo push"
   echo "Discard local changes: git -C .claude/.memories-repo checkout -- memories/"
 
-  printf '%s\n' "$current_hash" > "$review_state_file"
+  if [ -n "$current_hash" ]; then
+    # Atomic write so a killed hook can't leave an empty state file behind.
+    printf '%s\n' "$current_hash" > "$review_state_file.tmp" \
+      && mv "$review_state_file.tmp" "$review_state_file"
+  fi
   exit 0
 fi
 
@@ -229,10 +259,11 @@ if [ "$uncommitted" -gt 0 ]; then
     else
       msg="auto: memories from $host $date_str"
     fi
-    if git -C "$memories_dir" commit -m "$msg" --quiet; then
+    if commit_err=$(git -C "$memories_dir" commit -m "$msg" --quiet 2>&1); then
       committed=1
     else
-      echo "Shared memories: commit failed (pre-commit hook or git config?); will retry on next Stop."
+      echo "Shared memories: commit failed; will retry on next Stop."
+      [ -n "$commit_err" ] && printf '  %s\n' "$commit_err"
       exit 0
     fi
   fi
@@ -247,10 +278,24 @@ if [ "$committed" -eq 1 ]; then
 fi
 [ "$unpushed" -eq 0 ] && exit 0
 
-if ! git -C "$memories_dir" pull --rebase --autostash --quiet 2>/dev/null; then
-  git -C "$memories_dir" rebase --abort 2>/dev/null || true
-  echo "Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories."
+if ! pull_err=$(git -C "$memories_dir" pull --rebase --autostash --quiet 2>&1); then
+  # Distinguish actual rebase conflicts from network/auth/etc. so the message
+  # matches reality. CONFLICT marker comes from git's own rebase output.
+  if printf '%s' "$pull_err" | grep -qi 'conflict'; then
+    if ! abort_err=$(git -C "$memories_dir" rebase --abort 2>&1); then
+      echo "Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Resolve manually in .claude/.memories-repo/memories."
+      [ -n "$abort_err" ] && printf '  %s\n' "$abort_err"
+    else
+      echo "Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories."
+    fi
+  else
+    echo "Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop."
+    [ -n "$pull_err" ] && printf '  %s\n' "$pull_err"
+  fi
   exit 0
 fi
 
-git -C "$memories_dir" push --quiet 2>/dev/null || echo "Shared memories: auto-push failed (auth or network). Will retry on next Stop."
+if ! push_err=$(git -C "$memories_dir" push --quiet 2>&1); then
+  echo "Shared memories: auto-push failed. Will retry on next Stop."
+  [ -n "$push_err" ] && printf '  %s\n' "$push_err"
+fi
