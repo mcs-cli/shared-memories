@@ -44,9 +44,9 @@ This pack implements a **closed-loop sharing system** that pulls the latest team
  │    START     │────>│    PULL      │────>│   SESSION    │────>│  AUTO-PUSH   │
  └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
         ^                    |                    |                     |
-        |                    |                    |       filename      |
-        |                    |                    |       + deletion    |
-        |                    v                    v       guardrails    v
+        |                    |                    |     filename guard  |
+        |                    |                    |     + configurable  |
+        |                    v                    v     push policy     v
         |             ┌────────────────────────────────────────────────────┐
         |             │              <shared memories repo>                 │
         |             │  memories/                                          │
@@ -63,26 +63,28 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 ## How It Works
 
-### The Three Pieces
+### The Four Pieces
 
 | Piece | What | How |
 |-------|------|-----|
-| **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags uncommitted/unpushed state left behind by a previous failed auto-push |
-| **Stop Hook** | Auto-commits and pushes new/modified memory files after each Claude turn | Runs async; applies two guardrails (filename pattern + deletion block) before staging; rebases then pushes |
+| **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags lingering uncommitted/unpushed state — a stuck auto-push in `auto` / `full` mode, or pending changes awaiting decision in `review` mode |
+| **Stop Hook** | Handles new/modified memory files after each Claude turn per `MEMORIES_AUTOPUSH_MODE` (`auto` / `full` / `review`) | Runs async; filename guardrail blocks bad names in every mode; mode dictates whether deletions auto-push and whether anything is committed at all |
+| **PostToolUse Hook** | Tells Claude in-conversation that a memory was saved in `review` mode, so it can mention pending review to the user before the turn ends | Fires sync after `Write` / `Edit` / `MultiEdit` to `.claude/memories/`; injects `additionalContext` into Claude's next decision step. Silent in `auto` and `full` |
 | **Sparse Checkout + Symlink** | Keeps the shared repo invisible on disk | `.claude/.memories-repo/` is a blobless single-branch sparse clone; `.claude/memories` is a symlink Claude Code reads from |
 
 ### The Feedback Loop
 
 1. **First `mcs sync`** — the configure script clones the shared repo sparsely into `.claude/.memories-repo/`, symlinks `.claude/memories` to it, and migrates any pre-existing local memories into the shared folder (conflicts are preserved for manual review)
 
-2. **Session starts** — the SessionStart hook fast-forwards the shared checkout and warns if a previous Stop left lingering state (auth failure, rebase conflict, guardrail-rejected files)
+2. **Session starts** — the SessionStart hook fast-forwards the shared checkout and warns about any lingering state (auth failure / rebase conflict / guardrail-rejected files in `auto` / `full`; pending review items in `review`)
 
 3. **During work** — Claude uses the [`continuous-learning`](https://github.com/mcs-cli/memory) skill to write new `learning_*.md` / `decision_*.md` files
 
-4. **Claude finishes a turn** — the Stop hook collects dirty files, applies guardrails:
-   - **Naming guardrail** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
-   - **Deletion guardrail** — deleted files are never auto-pushed (prevents accidental `rm` wiping team knowledge), but coexisting additions/modifications still push
-   - Staged files commit as `auto: memories from <host> <date>`, rebase onto upstream, push
+4. **Claude finishes a turn** — the Stop hook collects dirty files and dispatches by mode (`MEMORIES_AUTOPUSH_MODE`, see [Auto-Push Modes](#auto-push-modes)):
+   - **Naming guardrail (all modes)** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
+   - **`auto` (default)** — adds/mods auto-pushed; deletions parked in the working tree for manual review
+   - **`full`** — adds/mods AND deletions auto-pushed in one commit
+   - **`review`** — nothing auto; the hook prints a per-file report with approve/discard commands instead
 
 5. **Next session** — teammates pull your new memories via SessionStart and the loop continues
 
@@ -94,8 +96,9 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
-| **memories_pull.sh** | `SessionStart` | Fast-forwards the shared memories checkout; emits a warning if previous state is stuck |
-| **memories_autopush.sh** | `Stop` (async) | Auto-commits and pushes dirty memory files; enforces filename pattern + deletion block |
+| **memories_pull.sh** | `SessionStart` | Fast-forwards the shared memories checkout; emits a mode-aware warning if previous state is stuck (or, in `review` mode, summarises pending review) |
+| **memories_autopush.sh** | `Stop` (async) | Dispatches by `MEMORIES_AUTOPUSH_MODE` mode (`auto` / `full` / `review`); filename guardrail applies in every mode |
+| **memories_announce.sh** | `PostToolUse` (Write/Edit/MultiEdit) | In `review` mode only, surfaces the just-written memory to Claude's context so it mentions pending review in chat. Silent in `auto` and `full` |
 
 ### Configuration Script
 
@@ -152,6 +155,7 @@ During `mcs sync`, you'll be prompted for:
 |--------|-------------|---------|
 | **MEMORIES_REPO_URL** | Clone URL for the shared memories repo, e.g. `git@github.com:org/memories.git` | *(required)* |
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
+| **MEMORIES_AUTOPUSH_MODE** | Stop-hook behavior — `auto` (writes auto-pushed, deletions parked), `full` (writes + deletions auto-pushed), or `review` (nothing auto, per-turn report). See [Auto-Push Modes](#auto-push-modes). | `auto` |
 
 ---
 
@@ -160,9 +164,12 @@ During `mcs sync`, you'll be prompted for:
 ```
 shared-memories/
 ├── techpack.yaml                    # Manifest — defines all components
+├── config/
+│   └── settings.json                # Templated env block — ships MEMORIES_AUTOPUSH_MODE
 ├── hooks/
 │   ├── memories_pull.sh             # SessionStart: pull + stuck-state warning
-│   └── memories_autopush.sh         # Stop: auto-commit + push (async)
+│   ├── memories_autopush.sh         # Stop: auto-commit + push (async)
+│   └── memories_announce.sh         # PostToolUse: review-mode nudge to Claude (sync)
 └── scripts/
     ├── configure-memories.sh        # Sparse clone + symlink + migration
     ├── doctor-memories.sh           # Setup health check
@@ -218,6 +225,41 @@ Normal commits (including ones that delete files via `memory-audit`) are unaffec
 
 ---
 
+## Auto-Push Modes
+
+The Stop hook's behavior is set during `mcs sync` via the `MEMORIES_AUTOPUSH_MODE` prompt. The chosen value is written to `.claude/settings.local.json`'s `env` block (per-user / project-local). To change modes later, re-run `mcs sync` and pick a different value, or edit `.claude/settings.local.json` directly.
+
+| Mode | Adds / Modifications | Deletions | When to use |
+|------|----------------------|-----------|-------------|
+| `auto` *(default)* | auto-pushed | parked for manual review | Safe default for most teams. The asymmetric trust matches how memories are typically created vs. removed. |
+| `full` | auto-pushed | auto-pushed | You trust your workflow — `memory-audit` runs are deliberate, no fat-finger risk. Skips the Intentional Deletion Workflow below. |
+| `review` | not pushed | not pushed | You want to inspect every change before it propagates to the team. The hook prints a per-file report each turn end. |
+
+Unset, empty, and unrecognized values fall through to `auto` (with a one-line warning for unrecognized values), so existing installs see zero behavior change.
+
+In `review` mode, the hook prints a report on each turn end:
+
+```
+Shared memories [review mode]: <N> pending file(s) in memories/ and <M> unpushed commit(s)
++ NEW  <file:///…/memories/learning_foo.md>
+       "<first non-empty line preview>"
+~ MOD  <file:///…/memories/decision_bar.md>  (+3 -1)
+       Diff: git -C .claude/.memories-repo diff -- memories/decision_bar.md
+- DEL  memories/learning_old.md  (last modified 3 weeks ago)
+       Recover: git -C .claude/.memories-repo checkout HEAD -- memories/learning_old.md
+
+Approve all: …  (bulk add + commit + pull --rebase + push)
+Discard local changes: …
+```
+
+The same pending set is reported once per session — repeated turns within the session stay silent so the report doesn't spam every prompt. SessionStart resets the dedupe so unresolved changes re-surface in the next session instead of being buried forever.
+
+In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`memories_announce.sh`), so it can proactively mention pending review in the same turn — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
+
+Pull is always automatic regardless of mode — incoming team memories arrive at session start.
+
+---
+
 ## Intentional Deletion Workflow
 
 When you legitimately want to remove stale memories (typically after running the `memory-audit` skill from `mcs-cli/memory`), do it manually:
@@ -227,7 +269,9 @@ git -C .claude/.memories-repo/memories commit -am "audit: remove stale memories"
 git -C .claude/.memories-repo/memories push
 ```
 
-The deletion block is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents.
+The deletion block in `auto` mode is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents.
+
+If your workflow makes that friction unnecessary, set `MEMORIES_AUTOPUSH_MODE=full` to skip this step — `memory-audit`'s deletions will then auto-push alongside any other writes.
 
 ---
 
@@ -248,7 +292,9 @@ git -C .claude/.memories-repo/memories ls-files --others   # untracked files
 
 Anything not matching `memories/(learning|decision)_*.md` needs renaming.
 
-**If SessionStart warns about lingering state**, either the previous push hit an auth/network issue (fix and wait for the next Stop), or guardrail-rejected files are sitting dirty (rename them). `mcs doctor` will tell you which.
+**If SessionStart warns about lingering state**:
+- In `auto` / `full` mode the previous push hit an auth/network issue (fix and wait for the next Stop), or guardrail-rejected files are sitting dirty (rename them). `mcs doctor` will tell you which.
+- In `review` mode the warning is expected — it lists pending changes awaiting your decision. End a turn to see the per-file report.
 
 ---
 

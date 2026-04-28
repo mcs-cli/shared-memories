@@ -1,0 +1,5 @@
+{
+  "env": {
+    "MEMORIES_AUTOPUSH_MODE": "__MEMORIES_AUTOPUSH_MODE__"
+  }
+}
