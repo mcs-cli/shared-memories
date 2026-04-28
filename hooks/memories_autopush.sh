@@ -86,7 +86,7 @@ if [ "$uncommitted" -gt 0 ]; then
     {
       git -C "$memories_dir" diff --name-only HEAD -- memories/ 2>/dev/null || true
       printf '%s\n' "$untracked"
-    } | grep -v '^$' | sort -u
+    } | grep -v '^$' | sort -u || true
   )
 
   # ── Filename guardrail (blocks ALL modes) ─────────────────────────────
@@ -134,7 +134,11 @@ if [ "$mode" = "review" ]; then
       state_lines+="UNPUSHED	$head_sha	$unpushed"$'\n'
     fi
   fi
-  state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort)
+  # `|| true` because grep -v returns 1 on empty input (e.g. when only pending
+  # state is a renamed file: rename doesn't match AM/D filters, state_lines
+  # ends up empty, grep rc=1 + set -e + ERR trap = silent exit before our
+  # unclassified-pending fallback below can fire.
+  state_canonical=$(printf '%s' "$state_lines" | grep -v '^$' | sort || true)
 
   if [ -z "$state_canonical" ]; then
     # Filters captured nothing, but the fast-exit at the top of the hook
@@ -263,7 +267,7 @@ if [ "$uncommitted" -gt 0 ]; then
       {
         printf '%s\n' "$added_modified"
         printf '%s\n' "$untracked"
-      } | grep -v '^$' | sort -u
+      } | grep -v '^$' | sort -u || true
     )
 
     if [ -n "$stageable" ]; then
