@@ -163,9 +163,12 @@ if [ "$mode" = "review" ]; then
   # Hash via whatever's available — shasum (macOS), sha256sum (Linux), openssl,
   # or git hash-object as last resort. Different algorithms produce different
   # digests, but uniqueness within a session is all dedupe needs.
-  # Percent-encode characters that break terminal autolink detection in
-  # file:// URLs. Spaces are the common case (project paths like
-  # "/Users/x/My Code/foo"); #, ?, ( ) also break URL parsing in some terminals.
+  # Percent-encode the chars that most reliably break terminal autolink
+  # detection in file:// URLs. Spaces are the common case (project paths like
+  # "/Users/x/My Code/foo"); # and ? also break URL parsing in some terminals.
+  # Other reserved chars (parens, etc.) are passed through — most terminals
+  # tolerate them and percent-encoding everything reserved would mangle the
+  # URL beyond what the user expects to see in the report.
   url_encode_path() {
     local p="$1"
     p=${p// /%20}
@@ -210,6 +213,10 @@ if [ "$mode" = "review" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     preview=$(grep -m1 -v '^[[:space:]]*$' "$memories_dir/$f" 2>/dev/null || true)
+    # Strip C0 control chars (incl. ESC for ANSI, BEL, CR) and DEL, but keep
+    # tab (0x09) and UTF-8 multibyte (>=0x80) so international text survives.
+    # Defends the terminal against memory files containing escape sequences.
+    preview=$(printf '%s' "$preview" | LC_ALL=C tr -d '\000-\010\013\014\016-\037\177')
     preview=${preview:0:80}
     echo "+ NEW  <file://$(url_encode_path "$memories_dir/$f")>"
     [ -n "$preview" ] && echo "       \"$preview\""

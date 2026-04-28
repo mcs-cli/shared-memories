@@ -69,7 +69,7 @@ if [ "$uncommitted" -gt 0 ] || [ "$unpushed" -gt 0 ]; then
   if [ "$mode" = "review" ]; then
     pending_msg="Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands."
   else
-    pending_msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/(learning_|decision_)*.md). The next Stop will retry automatically."
+    pending_msg="Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/{learning,decision}_<name>.md). The next Stop will retry automatically."
   fi
 fi
 
