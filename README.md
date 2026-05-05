@@ -157,6 +157,15 @@ During `mcs sync`, you'll be prompted for:
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
 | **MEMORIES_AUTOPUSH_MODE** | Stop-hook behavior — `auto` (writes auto-pushed, deletions parked), `full` (writes + deletions auto-pushed), or `review` (nothing auto, per-turn report). See [Auto-Push Modes](#auto-push-modes). | `auto` |
 
+> **Install per-project, not globally.** Run `mcs sync` from each project's root (the directory that contains `.claude/`, not `.claude/` itself) — do **not** install this pack into your user-level `~/.claude/` directory.
+>
+> The hooks anchor on their own on-disk location and operate on a sibling `.memories-repo/` working tree. A single global install would collapse every project onto one shared checkout, which breaks two things:
+>
+> 1. **Concurrent sessions race on the same working tree.** If you run Claude in two projects at the same time, both Stop hooks try to stage, commit, rebase, and push against the same `.git` index — you'll see interleaved commits, half-applied rebases, and dedupe state (`review` mode's `.review-shown`) stomped between sessions.
+> 2. **Project context bleeds across sessions.** Memories Claude writes while working on project A would be auto-pushed under project B's session if B happens to end its turn first.
+>
+> Per-project installs keep one independent clone per repo while still sharing the same remote, so the team-wide KB stays unified without the local race conditions.
+
 ---
 
 ## Directory Structure

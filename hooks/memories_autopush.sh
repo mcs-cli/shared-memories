@@ -21,20 +21,28 @@ trap 'rc=$?; echo "memories_autopush: aborted (rc=$rc) at line $LINENO: $BASH_CO
 #   git -C .claude/.memories-repo/memories commit -am "audit: remove stale memories" && \
 #     git -C .claude/.memories-repo/memories push
 
-command -v git >/dev/null 2>&1 || exit 0
-command -v jq  >/dev/null 2>&1 || exit 0
+command -v git >/dev/null 2>&1 || { echo "memories_autopush: git not found; skipping" >&2; exit 0; }
+command -v jq  >/dev/null 2>&1 || { echo "memories_autopush: jq not found; skipping" >&2; exit 0; }
 
 input_data=$(cat) || exit 0
-echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
+echo "$input_data" | jq '.' >/dev/null 2>&1 || { echo "memories_autopush: stdin is not valid JSON; skipping" >&2; exit 0; }
 
-cwd=$(echo "$input_data" | jq -r '.cwd // empty')
-[ -n "$cwd" ] || cwd="$(pwd)"
+# Anchor on the script's own path, not stdin `cwd`. The hook ships at
+# <project>/.claude/hooks/shared-memories/<script>.sh, so the project root is
+# three `dirname` steps up. Stdin `cwd` reflects the assistant's bash session
+# pwd — `cd` drift inside a turn would otherwise hide the repo and silently
+# no-op every Stop event for the rest of the session.
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 0
+project_root=$(cd -- "$script_dir/../../.." && pwd) || exit 0
 
 # Anchor on the hidden sparse checkout. Every working-tree git call below is
 # scoped with `-- memories/` so root-level repo files (README etc.) can't trip
 # the guardrail.
-memories_dir="$cwd/.claude/.memories-repo"
-git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+memories_dir="$project_root/.claude/.memories-repo"
+if ! git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "memories_autopush: $memories_dir is not a git worktree; skipping (project_root=$project_root)" >&2
+  exit 0
+fi
 
 # ── Resolve mode ─────────────────────────────────────────────────────────
 # keep in sync with hooks/memories_pull.sh mode case

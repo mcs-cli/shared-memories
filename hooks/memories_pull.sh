@@ -7,19 +7,26 @@ trap 'rc=$?; echo "memories_pull: aborted (rc=$rc) at line $LINENO: $BASH_COMMAN
 # guardrail refusal). This is the safety net that keeps silent push failures
 # from accumulating invisibly.
 
-command -v git >/dev/null 2>&1 || exit 0
-command -v jq  >/dev/null 2>&1 || exit 0
+command -v git >/dev/null 2>&1 || { echo "memories_pull: git not found; skipping" >&2; exit 0; }
+command -v jq  >/dev/null 2>&1 || { echo "memories_pull: jq not found; skipping" >&2; exit 0; }
 
 input_data=$(cat) || exit 0
-echo "$input_data" | jq '.' >/dev/null 2>&1 || exit 0
+echo "$input_data" | jq '.' >/dev/null 2>&1 || { echo "memories_pull: stdin is not valid JSON; skipping" >&2; exit 0; }
 
-cwd=$(echo "$input_data" | jq -r '.cwd // empty')
-[ -n "$cwd" ] || cwd="$(pwd)"
+# Anchor on the script's own path, not stdin `cwd`. The hook ships at
+# <project>/.claude/hooks/shared-memories/<script>.sh, so the project root is
+# three `dirname` steps up. Script-relative anchoring keeps us cwd-agnostic
+# and matches memories_autopush.sh's resolution.
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 0
+project_root=$(cd -- "$script_dir/../../.." && pwd) || exit 0
 
 # Anchor on the hidden sparse checkout (the git work tree) rather than the
 # .claude/memories symlink — same git root, but one less level of indirection.
-memories_dir="$cwd/.claude/.memories-repo"
-git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+memories_dir="$project_root/.claude/.memories-repo"
+if ! git -C "$memories_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "memories_pull: $memories_dir is not a git worktree; skipping (project_root=$project_root)" >&2
+  exit 0
+fi
 
 # keep in sync with hooks/memories_autopush.sh mode case
 # Unknown values surface a one-time warning via additionalContext below
