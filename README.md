@@ -63,13 +63,14 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 ## How It Works
 
-### The Four Pieces
+### The Five Pieces
 
 | Piece | What | How |
 |-------|------|-----|
 | **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags lingering uncommitted/unpushed state — a stuck auto-push in `auto` / `full` mode, or pending changes awaiting decision in `review` mode |
-| **Stop Hook** | Handles new/modified memory files after each Claude turn per `MEMORIES_AUTOPUSH_MODE` (`auto` / `full` / `review`) | Runs async; filename guardrail blocks bad names in every mode; mode dictates whether deletions auto-push and whether anything is committed at all |
-| **PostToolUse Hook** | Tells Claude in-conversation that a memory was saved in `review` mode, so it can mention pending review to the user before the turn ends | Fires sync after `Write` / `Edit` / `MultiEdit` to `.claude/memories/`; injects `additionalContext` into Claude's next decision step. Silent in `auto` and `full` |
+| **Stop Hook** | Handles new/modified memory files after each Claude turn per `MEMORIES_AUTOPUSH_MODE` (`auto` / `full` / `review`) | Runs async; filename guardrail blocks bad names in every mode; mode dictates whether deletions auto-push, whether anything is committed at all, and (in `review`) prints the per-turn pending-changes report |
+| **PostToolUse Hook** | Tells Claude in-conversation that a memory was saved in `review` mode, so it can mention pending review and invoke `/approve-memories` when the user confirms | Fires sync after `Write` / `Edit` / `MultiEdit` to `.claude/memories/`; injects `additionalContext` into Claude's next decision step. Silent in `auto` and `full` |
+| **/approve-memories Slash Command** | One shared approval surface both the user and Claude invoke identically — stages, commits, pulls `--rebase`, pushes everything pending under `memories/` | Re-runs the Stop-hook filename guardrail; takes an optional commit-message reason; works in every mode (primary use is `review`; also unblocks state stuck after a push failure in `auto` / `full`) |
 | **Sparse Checkout + Symlink** | Keeps the shared repo invisible on disk | `.claude/.memories-repo/` is a blobless single-branch sparse clone; `.claude/memories` is a symlink Claude Code reads from |
 
 ### The Feedback Loop
@@ -84,7 +85,7 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
    - **Naming guardrail (all modes)** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
    - **`auto` (default)** — adds/mods auto-pushed; deletions parked in the working tree for manual review
    - **`full`** — adds/mods AND deletions auto-pushed in one commit
-   - **`review`** — nothing auto; the hook prints a per-file report with approve/discard commands instead
+   - **`review`** — nothing auto; the hook prints a per-file report and the user (or Claude, via the PostToolUse nudge) invokes `/approve-memories` to push, or runs the discard commands shown in the report
 
 5. **Next session** — teammates pull your new memories via SessionStart and the loop continues
 
@@ -281,16 +282,17 @@ Pull is always automatic regardless of mode — incoming team memories arrive at
 
 ## Intentional Deletion Workflow
 
-When you legitimately want to remove stale memories (typically after running the `memory-audit` skill from `mcs-cli/memory`), do it manually:
+When you legitimately want to remove stale memories (typically after running the `memory-audit` skill from `mcs-cli/memory`), invoke the slash command:
 
-```bash
-git -C .claude/.memories-repo/memories commit -am "audit: remove stale memories"
-git -C .claude/.memories-repo/memories push
+```
+/approve-memories audit cleanup
 ```
 
-The deletion block in `auto` mode is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents.
+That stages the deletions, commits as `review: audit cleanup`, pulls `--rebase`, and pushes — same recipe the slash command uses for any other approval, with the filename guardrail re-applied.
 
-If your workflow makes that friction unnecessary, set `MEMORIES_AUTOPUSH_MODE=full` to skip this step — `memory-audit`'s deletions will then auto-push alongside any other writes.
+The deletion block in `auto` mode is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents. The slash command is that confirmation step in one keystroke.
+
+If your workflow makes the friction unnecessary, set `MEMORIES_AUTOPUSH_MODE=full` to skip the manual step entirely — `memory-audit`'s deletions will then auto-push alongside any other writes.
 
 ---
 
@@ -312,8 +314,8 @@ git -C .claude/.memories-repo/memories ls-files --others   # untracked files
 Anything not matching `memories/(learning|decision)_*.md` needs renaming.
 
 **If SessionStart warns about lingering state**:
-- In `auto` / `full` mode the previous push hit an auth/network issue (fix and wait for the next Stop), or guardrail-rejected files are sitting dirty (rename them). `mcs doctor` will tell you which.
-- In `review` mode the warning is expected — it lists pending changes awaiting your decision. End a turn to see the per-file report.
+- In `auto` / `full` mode the previous push hit an auth/network issue (fix and wait for the next Stop, or run `/approve-memories` to retry immediately), or guardrail-rejected files are sitting dirty (rename them). `mcs doctor` will tell you which.
+- In `review` mode the warning is expected — it lists pending changes awaiting your decision. End a turn to see the per-file report, then `/approve-memories` to push.
 
 ---
 
