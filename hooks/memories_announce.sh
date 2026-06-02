@@ -21,7 +21,8 @@ file_path=$(echo "$input_data" | jq -r '.tool_input.file_path // empty' 2>/dev/n
 # tools touch many paths; restrict to the exact memory-file naming convention
 # the autopush guardrail accepts. A loose glob would announce phantom pending
 # state for files autopush will silently reject (e.g. "learning_foo bar.md").
-# keep in sync with hooks/memories_autopush.sh allowed_pattern
+# keep in sync with hooks/memories_autopush.sh allowed_pattern,
+# scripts/configure-memories.sh allowed_pattern, and commands/approve-memories.md guardrail
 [[ "$file_path" =~ (^|.*/)\.claude/memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$ ]] || exit 0
 
 # Review mode only — auto/full/unset/unknown all auto-push and need no nudge.
@@ -30,7 +31,7 @@ case "${MEMORIES_AUTOPUSH_MODE:-}" in
   *)      exit 0 ;;
 esac
 
-msg="Memory file saved at $file_path (MEMORIES_AUTOPUSH_MODE=review). This memory will not auto-push. Mention the pending memory to the user before ending your turn so they can decide whether to approve or discard."
+msg="Memory file saved at $file_path (MEMORIES_AUTOPUSH_MODE=review). This memory will not auto-push. Mention the pending memory to the user before ending your turn so they can decide whether to approve or discard. If they approve, run /approve-memories."
 
 jq -n --arg ctx "$msg" \
   '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $ctx}}'

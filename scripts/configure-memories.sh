@@ -207,7 +207,8 @@ trap - ERR
 # all-or-nothing guardrail will catch them again if the engineer ignores the
 # nudge, so the pressure to rename is consistent.
 if [ "${imported:-0}" -gt 0 ]; then
-  # keep in sync with hooks/memories_autopush.sh allowed_pattern
+  # keep in sync with hooks/memories_autopush.sh allowed_pattern,
+  # hooks/memories_announce.sh regex, and commands/approve-memories.md guardrail
   allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
 
   untracked=$(git -C "$repo_dir" ls-files --others --exclude-standard --full-name -- memories/ 2>/dev/null | grep -v '^$' || true)

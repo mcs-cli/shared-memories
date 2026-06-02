@@ -61,6 +61,14 @@ components:
       source: hooks/memories_autopush.sh
       destination: memories_autopush.sh
 
+  # ── Commands ──────────────────────────────────────────────
+  - id: command-approve-memories
+    displayName: /approve-memories command
+    description: Slash command that stages, commits, pulls --rebase, and pushes all pending memory files. Primary use is `MEMORIES_AUTOPUSH_MODE=review` — the per-turn report tells both Claude and the user to invoke this to approve pending changes. Also unblocks state stuck from a previous push failure in auto/full mode.
+    command:
+      source: commands/approve-memories.md
+      destination: approve-memories.md
+
   - id: hook-memories-announce
     displayName: Surface review-mode memory writes to Claude
     description: PostToolUse hook that injects additionalContext after a memory file is written, only when MEMORIES_AUTOPUSH_MODE=review. Lets Claude proactively mention pending memory review in conversation. Silent in auto/full modes.

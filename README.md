@@ -100,6 +100,12 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 | **memories_autopush.sh** | `Stop` (async) | Dispatches by `MEMORIES_AUTOPUSH_MODE` mode (`auto` / `full` / `review`); filename guardrail applies in every mode |
 | **memories_announce.sh** | `PostToolUse` (Write/Edit/MultiEdit) | In `review` mode only, surfaces the just-written memory to Claude's context so it mentions pending review in chat. Silent in `auto` and `full` |
 
+### Slash Commands
+
+| Command | What It Does |
+|---------|-------------|
+| **/approve-memories** | Stages, commits, pulls `--rebase`, and pushes everything pending under `memories/`. Primary entry point for `review` mode approval; also unblocks state stuck after a push failure in `auto` / `full` |
+
 ### Configuration Script
 
 | Script | When | What It Does |
@@ -173,6 +179,8 @@ During `mcs sync`, you'll be prompted for:
 ```
 shared-memories/
 ├── techpack.yaml                    # Manifest — defines all components
+├── commands/
+│   └── approve-memories.md          # Slash command for review-mode approval
 ├── config/
 │   └── settings.json                # Templated env block — ships MEMORIES_AUTOPUSH_MODE
 ├── hooks/
@@ -257,13 +265,15 @@ Shared memories [review mode]: <N> pending file(s) in memories/ and <M> unpushed
 - DEL  memories/learning_old.md  (last modified 3 weeks ago)
        Recover: git -C .claude/.memories-repo checkout HEAD -- memories/learning_old.md
 
-Approve all: …  (bulk add + commit + pull --rebase + push)
+Approve all:           /approve-memories  [optional commit reason]
 Discard local changes: …
 ```
 
+`/approve-memories` (shipped by this pack) stages everything under `memories/`, commits as `review: <reason>` (default: `approved memories from <host> <date>`), pulls `--rebase --autostash`, and pushes. It re-runs the Stop-hook filename guardrail, so a stray `wip.md` blocks the push. Both you and Claude invoke the same command — no copy-paste of multi-line git incantations. Also unblocks `auto` / `full` state stuck from a previous push failure.
+
 The same pending set is reported once per session — repeated turns within the session stay silent so the report doesn't spam every prompt. SessionStart resets the dedupe so unresolved changes re-surface in the next session instead of being buried forever.
 
-In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`memories_announce.sh`), so it can proactively mention pending review in the same turn — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
+In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`memories_announce.sh`), so it can proactively mention pending review in the same turn and invoke `/approve-memories` when you confirm — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
 
 Pull is always automatic regardless of mode — incoming team memories arrive at session start.
 

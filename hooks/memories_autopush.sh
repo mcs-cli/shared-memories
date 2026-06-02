@@ -86,7 +86,8 @@ deleted_files=""
 
 if [ "$uncommitted" -gt 0 ]; then
   # ── Gather dirty file lists (shared by review and auto/full) ───────────
-  # keep in sync with scripts/configure-memories.sh allowed_pattern
+  # keep in sync with scripts/configure-memories.sh allowed_pattern,
+  # hooks/memories_announce.sh regex, and commands/approve-memories.md guardrail
   allowed_pattern='^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$'
 
   untracked=$(git -C "$memories_dir" ls-files --others --exclude-standard --full-name -- memories/ 2>/dev/null || true)
@@ -259,10 +260,7 @@ if [ "$mode" = "review" ]; then
     echo "        Push: git -C .claude/.memories-repo pull --rebase --autostash && git -C .claude/.memories-repo push"
     echo ""
   fi
-  echo "Approve all: git -C .claude/.memories-repo add -A -- memories/ \\"
-  echo "             && git -C .claude/.memories-repo commit -m 'review: <reason>' \\"
-  echo "             && git -C .claude/.memories-repo pull --rebase --autostash \\"
-  echo "             && git -C .claude/.memories-repo push"
+  echo "Approve all:           /approve-memories  [optional commit reason]"
   echo "Discard local changes: git -C .claude/.memories-repo checkout -- memories/ \\"
   echo "                       && git -C .claude/.memories-repo clean -f -- memories/"
 
