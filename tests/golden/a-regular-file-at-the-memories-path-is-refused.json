@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "<TMP>/work/project/.claude/memories exists but is not a directory or symlink; refusing to touch it.\n",
+  "code": 0,
+  "git": "memories"
+}

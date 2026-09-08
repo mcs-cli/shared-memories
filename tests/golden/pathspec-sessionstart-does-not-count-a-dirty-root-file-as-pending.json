@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: M README.md\nlog-all: add a root README | seed\ntracked-all: README.md | memories/learning_seed_topic.md\nstatus: \nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: add a root README | seed\nremote-files: README.md | memories/learning_seed_topic.md"
+}

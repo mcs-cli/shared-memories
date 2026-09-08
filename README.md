@@ -1,4 +1,4 @@
-# Shared Memories
+# 🧠 Shared Memories
 
 A [tech pack](https://github.com/mcs-cli/mcs) that auto-syncs Claude Code's `.claude/memories/` across a team via a dedicated shared git repo. Captures are handled by [`mcs-cli/memory`](https://github.com/mcs-cli/memory) (the `continuous-learning` skill + semantic retrieval); this pack **shares** those captures across the team without anyone remembering to commit or push.
 
@@ -6,12 +6,14 @@ Built for the [`mcs`](https://github.com/mcs-cli/mcs) configuration engine.
 
 ```
 identifier: shared-memories
-requires:   mcs >= 2026.4.12
+requires:   mcs >= 2026.9.3
 ```
+
+**Contents** — [When is this useful?](#-when-is-this-useful) · [The problem](#-the-problem) · [How it works](#-how-it-works) · [What's included](#-whats-included) · [Installation](#-installation) · [Directory structure](#-directory-structure) · [Migration](#-migration-from-an-existing-local-memories-folder) · [Side branches](#-optional-push-to-a-side-branch) · [Auto-push modes](#-auto-push-modes) · [Deletions](#-intentional-deletion-workflow) · [Troubleshooting](#-troubleshooting) · [Development](#-development)
 
 ---
 
-## When Is This Useful?
+## 🤔 When Is This Useful?
 
 **You probably don't need this pack if** your team commits `.claude/memories/` directly into the project repo — normal git workflow already shares those memories across the team and this pack adds nothing.
 
@@ -23,7 +25,7 @@ requires:   mcs >= 2026.4.12
 
 ---
 
-## The Problem
+## 🧩 The Problem
 
 Claude Code's `.claude/memories/` is great — you accumulate `learning_*.md` and `decision_*.md` files and Claude gets smarter about your codebase over time. But memories are **per-engineer**: when someone figures out a gnarly integration quirk or pins down a subtle architecture decision, only they benefit.
 
@@ -32,36 +34,25 @@ The obvious fix is a shared git repo. Two friction points kill adoption:
 1. **Remembering to push.** People forget. Memories sit on laptops for weeks.
 2. **Branch protection on the shared repo.** If every Claude turn needs a PR + ticket + approval, nobody will bother pushing their tiny observations.
 
-## The Solution
+## 🔁 The Solution
 
 This pack implements a **closed-loop sharing system** that pulls the latest team memories at session start and pushes new ones when Claude finishes a turn.
 
-```
-                             SHARED MEMORIES LOOP
-
- ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
- │   SESSION    │     │   TEAM KB    │     │     WORK     │     │     STOP     │
- │    START     │────>│    PULL      │────>│   SESSION    │────>│  AUTO-PUSH   │
- └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-        ^                    |                    |                     |
-        |                    |                    |     filename guard  |
-        |                    |                    |     + configurable  |
-        |                    v                    v     push policy     v
-        |             ┌────────────────────────────────────────────────────┐
-        |             │              <shared memories repo>                 │
-        |             │  memories/                                          │
-        |             │    learning_background_task_watchdog_timeout.md     │
-        +─────────────│    learning_orm_batch_insert_memory_spike.md        │
-                      │    decision_architecture_mvvm_coordinators.md       │
-                      │    ...                                              │
-                      └────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    S([Session starts]) --> P["SessionStart hook<br/>git pull --ff-only"]
+    P --> W["Work session<br/>continuous-learning writes<br/>learning_*.md · decision_*.md"]
+    W --> T["Stop hook<br/>auto-push"]
+    T -->|"filename guard<br/>+ configurable push policy"| R
+    R[("shared memories repo — memories/<br/><br/>learning_background_task_watchdog_timeout.md<br/>learning_orm_batch_insert_memory_spike.md<br/>decision_architecture_mvvm_coordinators.md<br/>…")]
+    R -->|"teammates fast-forward at<br/>their next session start"| P
 ```
 
 Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). This pack is the distribution layer that makes them team-shared.
 
 ---
 
-## How It Works
+## 🔩 How It Works
 
 ### The Pieces
 
@@ -82,7 +73,7 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 3. **During work** — Claude uses the [`continuous-learning`](https://github.com/mcs-cli/memory) skill to write new `learning_*.md` / `decision_*.md` files
 
-4. **Claude finishes a turn** — the Stop hook collects dirty files and dispatches by mode (`MEMORIES_AUTOPUSH_MODE`, see [Auto-Push Modes](#auto-push-modes)):
+4. **Claude finishes a turn** — the Stop hook collects dirty files and dispatches by mode (`MEMORIES_AUTOPUSH_MODE`, see [Auto-Push Modes](#-auto-push-modes)):
    - **Naming guardrail (all modes)** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
    - **`auto` (default)** — adds/mods auto-pushed; deletions parked in the working tree for manual review
    - **`full`** — adds/mods AND deletions auto-pushed in one commit
@@ -90,17 +81,37 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 5. **Next session** — teammates pull your new memories via SessionStart and the loop continues
 
+The Stop hook in full, since it is where all the policy lives:
+
+```mermaid
+flowchart TD
+    A([Claude finishes a turn]) --> B{"anything uncommitted<br/>or unpushed?"}
+    B -->|no| Z([exit 0])
+    B -->|yes| C{"every dirty file matches<br/>memories/learning_*.md<br/>or memories/decision_*.md?"}
+    C -->|no| D["list the offenders,<br/>push nothing"] --> Z
+    C -->|yes| E{MEMORIES_AUTOPUSH_MODE}
+    E -->|auto| F["stage adds and mods,<br/>park deletions for review"]
+    E -->|full| G["stage everything,<br/>deletions included"]
+    E -->|review| H["print the per-file report,<br/>commit nothing"]
+    F --> I["commit · pull --rebase --autostash · push<br/>retry with jitter if rejected"]
+    G --> I
+    H --> Z
+    I --> Z
+```
+
 ---
 
-## What's Included
+## 📦 What's Included
 
 ### Session Hooks
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
-| **memories_pull.sh** | `SessionStart` | Fast-forwards the shared memories checkout; emits a mode-aware warning if previous state is stuck (or, in `review` mode, summarises pending review) |
-| **memories_autopush.sh** | `Stop` (async) | Dispatches by `MEMORIES_AUTOPUSH_MODE` mode (`auto` / `full` / `review`); filename guardrail applies in every mode |
-| **memories_announce.sh** | `PostToolUse` (Write/Edit/MultiEdit) | In `review` mode only, surfaces the just-written memory to Claude's context so it mentions pending review in chat. Silent in `auto` and `full` |
+| **pull.mts** | `SessionStart` | Fast-forwards the shared memories checkout; emits a mode-aware warning if previous state is stuck (or, in `review` mode, summarises pending review) |
+| **autopush.mts** | `Stop` (async) | Dispatches by `MEMORIES_AUTOPUSH_MODE` mode (`auto` / `full` / `review`); filename guardrail applies in every mode |
+| **announce.mts** | `PostToolUse` (Write/Edit/MultiEdit) | In `review` mode only, surfaces the just-written memory to Claude's context so it mentions pending review in chat. Silent in `auto` and `full` |
+
+Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarning <path>`: mcs prefixes the interpreter the hook declares in `hookInterpreter`, and never looks at the shebang. They install to `.claude/hooks/shared-memories/`, with the library they import beside them in `lib/`.
 
 ### Slash Commands
 
@@ -112,7 +123,7 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 | Script | When | What It Does |
 |--------|------|-------------|
-| **configure-memories.sh** | `mcs sync` | Sparse-clones the shared repo, sets up the symlink, migrates any pre-existing `.claude/memories/` into the shared folder |
+| **configure-memories.ts** | `mcs sync` | Sparse-clones the shared repo, sets up the symlink, migrates any pre-existing `.claude/memories/` into the shared folder |
 
 ### CLAUDE.local.md Section
 
@@ -131,15 +142,18 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 | Dep | Via |
 |-----|-----|
-| **jq** | brew |
+| **Node.js 22.6+** | brew |
+
+Node runs the TypeScript directly — there is no build step, no `node_modules`, and no runtime dependencies.
 
 ---
 
-## Installation
+## 🚀 Installation
 
 ### Prerequisites
 
 - macOS
+- Node.js 22.6 or newer (where `--experimental-strip-types` landed)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
 - [mcs](https://github.com/mcs-cli/mcs) CLI
 - [`mcs-cli/memory`](https://github.com/mcs-cli/memory) (companion capture pack — produces the `learning_*.md` / `decision_*.md` files this pack shares)
@@ -169,7 +183,7 @@ During `mcs sync`, you'll be prompted for:
 |--------|-------------|---------|
 | **MEMORIES_REPO_URL** | Clone URL for the shared memories repo, e.g. `git@github.com:org/memories.git` | *(required)* |
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
-| **MEMORIES_AUTOPUSH_MODE** | Stop-hook behavior — `auto` (writes auto-pushed, deletions parked), `full` (writes + deletions auto-pushed), or `review` (nothing auto, per-turn report). See [Auto-Push Modes](#auto-push-modes). | `auto` |
+| **MEMORIES_AUTOPUSH_MODE** | Stop-hook behavior — `auto` (writes auto-pushed, deletions parked), `full` (writes + deletions auto-pushed), or `review` (nothing auto, per-turn report). See [Auto-Push Modes](#-auto-push-modes). | `auto` |
 
 > **Install per-project, not globally.** Run `mcs sync` from each project's root (the directory that contains `.claude/`, not `.claude/` itself) — do **not** install this pack into your user-level `~/.claude/` directory.
 >
@@ -182,7 +196,7 @@ During `mcs sync`, you'll be prompted for:
 
 ---
 
-## Directory Structure
+## 📁 Directory Structure
 
 ```
 shared-memories/
@@ -191,22 +205,33 @@ shared-memories/
 │   └── approve-memories.md          # Slash command for review-mode approval
 ├── config/
 │   └── settings.json                # Templated env block — ships MEMORIES_AUTOPUSH_MODE
-├── hooks/
-│   ├── memories_pull.sh             # SessionStart: pull + stuck-state warning
-│   ├── memories_autopush.sh         # Stop: auto-commit + push (async)
-│   └── memories_announce.sh         # PostToolUse: review-mode nudge to Claude (sync)
-├── scripts/
-│   ├── configure-memories.sh        # Sparse clone + symlink + migration
-│   ├── doctor-memories.sh           # Setup health check
-│   └── doctor-memories-remote.sh    # Remote-access health check
-└── templates/
-    └── instructions.md              # CLAUDE.local.md section — what this dir is
+├── runtime/                         # Installed to .claude/hooks/shared-memories/
+│   ├── pull.mts                     # SessionStart: pull + stuck-state warning
+│   ├── autopush.mts                 # Stop: auto-commit + push (async)
+│   ├── announce.mts                 # PostToolUse: review-mode nudge to Claude (sync)
+│   └── lib/                         # git, paths, naming, mode, pending, report, push
+├── scripts/                         # Run in place from the pack checkout
+│   ├── configure-memories.ts        # Sparse clone + symlink + migration
+│   ├── doctor-memories.ts           # Setup health check
+│   └── doctor-memories-remote.ts    # Remote-access health check
+├── tests/                           # node:test — unit, contract and behaviour
+│   └── golden/                      # Behaviour recordings the suite checks against
+├── templates/
+│   └── instructions.md              # CLAUDE.local.md section — what this dir is
+├── .github/workflows/ci.yml         # macOS × Node 22.6/22/24
+├── package.json                     # No dependencies; test + typecheck scripts
+└── tsconfig.json                    # Strict, erasable-syntax-only, no emit
 ```
 
 On engineer disks, the pack materializes as:
 
 ```
 <project>/.claude/
+├── hooks/shared-memories/           # run by mcs via each hook's declared hookInterpreter
+│   ├── pull.mts
+│   ├── autopush.mts
+│   ├── announce.mts
+│   └── lib/                         # imported as ./lib/… by the entries beside it
 ├── .memories-repo/                  # sparse clone of MEMORIES_BRANCH
 │   ├── README.md, LICENSE, etc.     # any root-level files your repo ships
 │   └── memories/
@@ -219,7 +244,7 @@ The clone uses `--sparse --filter=blob:none --single-branch` so only the `memori
 
 ---
 
-## Migration From an Existing Local Memories Folder
+## 🚚 Migration From an Existing Local Memories Folder
 
 Engineers who already have `.claude/memories/` populated (from `mcs-cli/memory`, Claude Code's native memory, or manual use) are handled automatically on first `mcs sync`:
 
@@ -230,7 +255,21 @@ Engineers who already have `.claude/memories/` populated (from `mcs-cli/memory`,
 5. Well-named migrated files are auto-committed and pushed so they immediately become team knowledge
 6. If nothing is left in the backup dir, it's cleaned up automatically
 
-If any step fails partway, an `ERR` trap restores the original folder from the backup — you're never left with a broken setup and no memories.
+If any step fails partway, the failure path restores the original folder from the backup — you're never left with a broken setup and no memories.
+
+Each file in the backup takes one of four paths:
+
+```mermaid
+flowchart TD
+    A["a file in the migration backup"] --> B{"a file of that name<br/>already in the shared repo?"}
+    B -->|yes| C["skip — the shared copy wins,<br/>yours stays in the backup"]
+    B -->|no| D{"deleted somewhere in<br/>the branch's history?"}
+    D -->|yes| E["hold back, naming the<br/>commit that removed it"]
+    D -->|no| F["import into memories/"]
+    F --> G{"matches the naming rule?"}
+    G -->|yes| H["auto-commit and push"]
+    G -->|no| I["leave untracked,<br/>with a rename nudge"]
+```
 
 ### Why previously-deleted files are held back
 
@@ -261,7 +300,7 @@ A separate gap worth knowing about when you audit: filenames alone under-count d
 
 ---
 
-## Optional: Push to a Side Branch
+## 🌿 Optional: Push to a Side Branch
 
 If your org enforces PR + ticket + approval on the default branch of your memories repo, every Claude Stop auto-pushing to it would turn each memory into a PR. That kills adoption.
 
@@ -280,7 +319,7 @@ Normal commits (including ones that delete files via `memory-audit`) are unaffec
 
 ---
 
-## Auto-Push Modes
+## 🚦 Auto-Push Modes
 
 The Stop hook's behavior is set during `mcs sync` via the `MEMORIES_AUTOPUSH_MODE` prompt. The chosen value is written to `.claude/settings.local.json`'s `env` block (per-user / project-local). To change modes later, re-run `mcs sync` and pick a different value, or edit `.claude/settings.local.json` directly.
 
@@ -311,13 +350,13 @@ Discard local changes: …
 
 The same pending set is reported once per session — repeated turns within the session stay silent so the report doesn't spam every prompt. SessionStart resets the dedupe so unresolved changes re-surface in the next session instead of being buried forever.
 
-In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`memories_announce.sh`), so it can proactively mention pending review in the same turn and invoke `/approve-memories` when you confirm — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
+In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`announce.mts`), so it can proactively mention pending review in the same turn and invoke `/approve-memories` when you confirm — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
 
 Pull is always automatic regardless of mode — incoming team memories arrive at session start.
 
 ---
 
-## Intentional Deletion Workflow
+## 🧹 Intentional Deletion Workflow
 
 When you legitimately want to remove stale memories (typically after running the `memory-audit` skill from `mcs-cli/memory`), invoke the slash command:
 
@@ -333,7 +372,7 @@ If your workflow makes the friction unnecessary, set `MEMORIES_AUTOPUSH_MODE=ful
 
 ---
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ```bash
 mcs pack validate .                                  # verify techpack.yaml + file refs
@@ -356,7 +395,24 @@ Anything not matching `memories/(learning|decision)_*.md` needs renaming.
 
 ---
 
-## Links
+## 🧪 Development
+
+```bash
+npm test                                             # unit, contract and behaviour suites
+npm run typecheck                                    # tsc --noEmit (deps install ad hoc in CI)
+```
+
+TypeScript run directly by Node: no build step, no runtime dependencies, no lockfile. `tsconfig.json` sets `erasableSyntaxOnly`, so the syntax stays strippable — no `enum`, no `namespace`, no constructor parameter properties.
+
+**`tests/golden/` is the behaviour contract.** Each file pins what the pack produces for one fixture: stdout, stderr, exit code, and the resulting repository state. The suite builds a throwaway project with a real git remote, installs the hooks, runs them through their shebang (pinned by `tests/manifest.test.ts` to the same command the manifest declares), and compares. A diff therefore means the pack's behaviour changed, not that a test went stale.
+
+Fixtures carry an `expect` pattern asserted against the recording, so a fixture where nothing happens fails rather than passing vacuously. Machine- and day-dependent values — temp paths, hostname, dates, git's relative timestamps — are normalised; everything else is byte-exact.
+
+CI runs on macOS across Node 22 and 24. Besides the typecheck and the suite it guards three things: the pack contains no shell at all, `hostname -s` still matches `os.hostname().split(".")[0]` (the commit subjects depend on it), and the suite leaves the working tree clean.
+
+---
+
+## 🔗 Links
 
 - [MCS](https://github.com/mcs-cli/mcs) — the configuration engine
 - [Creating Tech Packs](https://github.com/mcs-cli/mcs/blob/main/docs/creating-tech-packs.md) — guide for building your own
@@ -367,6 +423,6 @@ Anything not matching `memories/(learning|decision)_*.md` needs renaming.
 
 ---
 
-## License
+## 📄 License
 
 MIT

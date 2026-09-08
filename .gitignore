@@ -7,3 +7,6 @@
 *.swo
 .idea/
 .vscode/
+
+# Node typecheck deps (CI + local only; runtime is zero-deps)
+node_modules/

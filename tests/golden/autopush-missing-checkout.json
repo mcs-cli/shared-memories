@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "memories_autopush: <TMP>/work/project/.claude/.memories-repo is not a git worktree; skipping (project_root=<TMP>/work/project)\n",
+  "code": 0,
+  "git": "status-all: \nlog-all: \ntracked-all: \nstatus: \nlog: \nupstream: (none)\nunpushed: 0\ntracked: \nreview-shown: absent\nworktree: \nremote-log: \nremote-files: "
+}

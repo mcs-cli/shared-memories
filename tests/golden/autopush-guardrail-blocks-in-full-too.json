@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories: skipping auto-push — unconventional filename(s):\n  - memories/scratch.md\nRename to memories/learning_<topic>_<specific>.md or memories/decision_<domain>_<topic>.md so the guardrail accepts them.\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? memories/scratch.md\nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: ?? memories/scratch.md\nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md scratch.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

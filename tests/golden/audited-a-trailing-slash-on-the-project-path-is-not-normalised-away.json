@@ -1,0 +1,6 @@
+{
+  "stdout": "Cloning shared memories (branch 'main', sparse) into <TMP>/work/project//.claude/.memories-repo...\nDone. 1 memory file(s) available at <TMP>/work/project//.claude/memories.\n",
+  "stderr": "Cloning into '<TMP>/work/project//.claude/.memories-repo'...\nwarning: --filter is ignored in local clones; use file:// instead.\ndone.\n",
+  "code": 0,
+  "git": ".memories-repo memories\nlearning_shared_seed.md"
+}

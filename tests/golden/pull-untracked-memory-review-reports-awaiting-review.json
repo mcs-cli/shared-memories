@@ -1,0 +1,6 @@
+{
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories: 1 uncommitted file(s) awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands.\"\n  }\n}\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? memories/learning_pending_one.md\nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: ?? memories/learning_pending_one.md\nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_pending_one.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

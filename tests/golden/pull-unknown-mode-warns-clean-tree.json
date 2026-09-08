@@ -1,0 +1,6 @@
+{
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories: unknown MEMORIES_AUTOPUSH_MODE='banana' — falling back to auto. Fix the value in .claude/settings.local.json (valid: auto, full, review) and restart the session.\"\n  }\n}\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

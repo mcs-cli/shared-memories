@@ -14,7 +14,7 @@ Run `git -C .claude/.memories-repo status --porcelain -- memories/` and `git -C 
 
 ## 2. Filename guardrail
 
-Every dirty file under `memories/` must match `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` — the same pattern the Stop hook enforces (keep in sync with `hooks/memories_autopush.sh` `allowed_pattern`, `hooks/memories_announce.sh` regex, and `scripts/configure-memories.sh` `allowed_pattern`). If any file fails, list the offenders, instruct the user to rename them to `memories/learning_<topic>_<specific>.md` or `memories/decision_<domain>_<topic>.md`, and stop without committing.
+Every dirty file under `memories/` must match `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` — the same pattern the Stop hook enforces, defined once in `runtime/lib/naming.mts`. If any file fails, list the offenders, instruct the user to rename them to `memories/learning_<topic>_<specific>.md` or `memories/decision_<domain>_<topic>.md`, and stop without committing.
 
 ## 3. Stage, commit, push
 

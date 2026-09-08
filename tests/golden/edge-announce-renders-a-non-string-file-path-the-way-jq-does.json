@@ -1,0 +1,6 @@
+{
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PostToolUse\",\n    \"additionalContext\": \"Memory file saved at {\\n  \\\"x\\\": 1\\n}\\n/p/.claude/memories/learning_a_b.md (MEMORIES_AUTOPUSH_MODE=review). This memory will not auto-push. Mention the pending memory to the user before ending your turn so they can decide whether to approve or discard. If they approve, run /approve-memories.\"\n  }\n}\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

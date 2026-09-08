@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "<TMP>/work/project/.claude/.memories-repo exists but is not a valid git checkout; refusing to touch it.\nDelete it manually and re-run `mcs sync` to re-clone.\n",
+  "code": 0,
+  "git": ".memories-repo"
+}

@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "Cannot set up shared memories — remote is unreachable or branch missing.\n  remote: /nonexistent/definitely-not-here.git\n  branch: main\n  error:  fatal: '/nonexistent/definitely-not-here.git' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n\nCommon causes:\n  - SSH key not loaded — try: ssh-add ~/.ssh/<your-key>\n  - Network offline or VPN disconnected\n  - Access revoked on the shared repo\n  - Branch 'main' does not exist on the remote\n\nYour existing memories at <TMP>/work/project/.claude/memories have not been touched.\n",
+  "code": 1,
+  "git": "memories\nlearning_mine_own.md"
+}

@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: local only | seed\ntracked-all: memories/learning_committed_x.md | memories/learning_seed_topic.md\nstatus: \nlog: local only | seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_committed_x.md | memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_committed_x.md learning_seed_topic.md\nremote-log: local only | seed\nremote-files: memories/learning_committed_x.md | memories/learning_seed_topic.md"
+}

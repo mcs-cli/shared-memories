@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "Cannot set up shared memories — remote is unreachable or branch missing.\n  remote: <TMP>/work/remote.git\n  branch: nope\n  error:  \n\nCommon causes:\n  - SSH key not loaded — try: ssh-add ~/.ssh/<your-key>\n  - Network offline or VPN disconnected\n  - Access revoked on the shared repo\n  - Branch 'nope' does not exist on the remote\n\nYour existing memories at <TMP>/work/project/.claude/memories have not been touched.\n",
+  "code": 1,
+  "git": ""
+}

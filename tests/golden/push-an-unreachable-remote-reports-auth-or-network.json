@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.\n  fatal: '/nonexistent/definitely-not-here.git' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: local only | seed\ntracked-all: memories/learning_ours_one.md | memories/learning_seed_topic.md\nstatus: \nlog: local only | seed\nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_ours_one.md | memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_ours_one.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Hook and script sources for the shared-memories techpack. Zero runtime dependencies; run by `node --experimental-strip-types`. Typecheck deps install ad hoc in CI.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  }
+}

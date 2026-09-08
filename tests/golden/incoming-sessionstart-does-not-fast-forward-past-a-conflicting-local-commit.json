@@ -1,0 +1,6 @@
+{
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories have lingering state: 1 unpushed commit(s). The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/{learning,decision}_<name>.md). The next Stop will retry automatically.\"\n  }\n}\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: our local commit | seed\ntracked-all: memories/learning_ours_own.md | memories/learning_seed_topic.md\nstatus: \nlog: our local commit | seed\nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_ours_own.md | memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_ours_own.md learning_seed_topic.md\nremote-log: teammate memory | seed\nremote-files: memories/learning_seed_topic.md | memories/learning_theirs_new.md"
+}

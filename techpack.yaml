@@ -3,13 +3,18 @@ identifier: shared-memories
 displayName: "Shared Memories"
 description: Team-shared Claude Code memories via a dedicated git repo
 author: Bruno Guidolim
-minMCSVersion: "2026.4.12"
+minMCSVersion: "2026.9.3"
 
 # Doctor-check scripts are wired via `supplementaryDoctorChecks.command`, which
 # the unreferenced-file heuristic doesn't inspect. Silence those warnings.
+# The rest is maintainer-only: nothing under them is installed.
 ignore:
-  - scripts/doctor-memories.sh
-  - scripts/doctor-memories-remote.sh
+  - scripts/doctor-memories.ts
+  - scripts/doctor-memories-remote.ts
+  - tests/
+  - .github/
+  - package.json
+  - tsconfig.json
 
 prompts:
   - key: MEMORIES_REPO_URL
@@ -35,31 +40,50 @@ prompts:
 
 components:
   # ── Dependencies ──────────────────────────────────────────
-  - id: jq
-    description: JSON processor required by hook scripts
-    brew: jq
+  - id: node
+    displayName: Node.js
+    description: Runtime for the hooks and pack scripts. Node 22.6+ runs the TypeScript directly, with no build step.
+    brew: node
+
+  # ── Runtime ───────────────────────────────────────────────
+  # The hook entry points are installed by the hook components below; this ships
+  # the library they import, beside them, so `./lib/...` resolves the same way in
+  # the pack checkout and once installed.
+  - id: runtime
+    displayName: Shared memories runtime
+    description: The library the hooks import. Installed beside them, in .claude/hooks/shared-memories/lib/. `.mts` so module type never depends on the consumer's package.json.
+    isRequired: true
+    dependencies: [node]
+    type: configuration
+    installAction:
+      type: copyPackFile
+      source: runtime/lib
+      destination: hooks/shared-memories/lib
+      fileType: generic
 
   # ── Hooks ─────────────────────────────────────────────────
   - id: hook-memories-pull
     displayName: Pull shared memories and flag stuck state
     description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, emits a system-reminder warning so the engineer knows.
-    dependencies: [jq]
+    dependencies: [node, runtime]
     hookEvent: SessionStart
+    hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 15
     hook:
-      source: hooks/memories_pull.sh
-      destination: memories_pull.sh
+      source: runtime/pull.mts
+      destination: pull.mts
 
   - id: hook-memories-autopush
     displayName: Sync shared memories
     description: After Claude stops, handles new/modified memory files according to MEMORIES_AUTOPUSH_MODE (auto/full/review). Default auto matches today — writes auto-pushed, deletions parked for manual review. Unconventional filenames halt everything until fixed in all modes. See README for the mode reference.
-    dependencies: [jq]
+    dependencies: [node, runtime]
     hookEvent: Stop
+    hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 30
     hookAsync: true
     hook:
-      source: hooks/memories_autopush.sh
-      destination: memories_autopush.sh
+      source: runtime/autopush.mts
+      destination: autopush.mts
 
   # ── Commands ──────────────────────────────────────────────
   - id: command-approve-memories
@@ -72,13 +96,14 @@ components:
   - id: hook-memories-announce
     displayName: Surface review-mode memory writes to Claude
     description: PostToolUse hook that injects additionalContext after a memory file is written, only when MEMORIES_AUTOPUSH_MODE=review. Lets Claude proactively mention pending memory review in conversation. Silent in auto/full modes.
-    dependencies: [jq]
+    dependencies: [node, runtime]
     hookEvent: PostToolUse
+    hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookMatcher: Write|Edit|MultiEdit
     hookTimeout: 5
     hook:
-      source: hooks/memories_announce.sh
-      destination: memories_announce.sh
+      source: runtime/announce.mts
+      destination: announce.mts
 
   # ── Configuration ─────────────────────────────────────────
   - id: settings
@@ -102,16 +127,16 @@ templates:
     contentFile: templates/instructions.md
 
 configureProject:
-  script: scripts/configure-memories.sh
+  script: scripts/configure-memories.ts
 
 supplementaryDoctorChecks:
   - type: shellScript
     name: Shared memories setup (checkout + symlink)
     section: Shared Memories
-    command: scripts/doctor-memories.sh
-    fixScript: scripts/configure-memories.sh
+    command: scripts/doctor-memories.ts
+    fixScript: scripts/configure-memories.ts
 
   - type: shellScript
     name: Shared memories remote access (auth + reachability)
     section: Shared Memories
-    command: scripts/doctor-memories-remote.sh
+    command: scripts/doctor-memories-remote.ts

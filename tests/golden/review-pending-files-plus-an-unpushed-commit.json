@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories [review mode]: 1 pending file(s) in memories/ and 1 unpushed commit(s)\n+ NEW  <file://<TMP>/work/project/.claude/.memories-repo/memories/learning_brand_new.md>\n       \"Brand new.\"\n\n  Note: 1 local commit(s) not yet on the remote.\n        Push: git -C .claude/.memories-repo pull --rebase --autostash && git -C .claude/.memories-repo push\n\nApprove all:           /approve-memories  [optional commit reason]\nDiscard local changes: git -C .claude/.memories-repo checkout -- memories/ \\\n                       && git -C .claude/.memories-repo clean -f -- memories/\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? .review-shown | ?? memories/learning_brand_new.md\nlog-all: local only | seed\ntracked-all: memories/learning_committed_x.md | memories/learning_seed_topic.md\nstatus: ?? memories/learning_brand_new.md\nlog: local only | seed\nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_committed_x.md | memories/learning_seed_topic.md\nreview-shown: present\nworktree: learning_brand_new.md learning_committed_x.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

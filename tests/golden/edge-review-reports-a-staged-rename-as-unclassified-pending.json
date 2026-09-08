@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories [review mode]: 1 unclassified pending change(s) in memories/\n  Inspect: git -C .claude/.memories-repo status -- memories/\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: R  memories/learning_seed_topic.md -> memories/learning_seed_renamed.md\nlog-all: seed\ntracked-all: memories/learning_seed_renamed.md\nstatus: R  memories/learning_seed_topic.md -> memories/learning_seed_renamed.md\nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_renamed.md\nreview-shown: absent\nworktree: learning_seed_renamed.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

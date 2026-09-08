@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: auto: memories from <HOST> <DATE> | seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: auto: memories from <HOST> <DATE> | seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: auto: memories from <HOST> <DATE> | seed\nremote-files: memories/learning_seed_topic.md"
+}

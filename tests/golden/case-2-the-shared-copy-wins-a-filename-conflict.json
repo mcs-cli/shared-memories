@@ -1,0 +1,6 @@
+{
+  "stdout": "Found pre-existing <TMP>/work/project/.claude/memories with 1 entr(y/ies) — staging for migration...\n  → backing up to <TMP>/work/project/.claude/.memories-migration-<TS>\nCloning shared memories (branch 'main', sparse) into <TMP>/work/project/.claude/.memories-repo...\nMigration: imported 0 local memory file(s); 1 conflict(s) (shared version kept); 0 previously-deleted file(s) held back.\n  Kept at <TMP>/work/project/.claude/.memories-migration-<TS> for review.\nDone. 1 memory file(s) available at <TMP>/work/project/.claude/memories.\n",
+  "stderr": "Cloning into '<TMP>/work/project/.claude/.memories-repo'...\nwarning: --filter is ignored in local clones; use file:// instead.\ndone.\n",
+  "code": 0,
+  "git": ".memories-migration-<TS> .memories-repo memories\nlearning_shared_seed.md"
+}

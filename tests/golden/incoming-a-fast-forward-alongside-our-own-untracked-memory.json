@@ -1,0 +1,6 @@
+{
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories have lingering state: 1 uncommitted file(s). The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/{learning,decision}_<name>.md). The next Stop will retry automatically.\"\n  }\n}\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? memories/learning_ours_pending.md\nlog-all: teammate memory | seed\ntracked-all: memories/learning_seed_topic.md | memories/learning_theirs_new.md\nstatus: ?? memories/learning_ours_pending.md\nlog: teammate memory | seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md | memories/learning_theirs_new.md\nreview-shown: absent\nworktree: learning_ours_pending.md learning_seed_topic.md learning_theirs_new.md\nremote-log: teammate memory | seed\nremote-files: memories/learning_seed_topic.md | memories/learning_theirs_new.md"
+}

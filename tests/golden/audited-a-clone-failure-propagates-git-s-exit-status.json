@@ -1,0 +1,6 @@
+{
+  "stdout": "Cloning shared memories (branch 'main', sparse) into <TMP>/work/project/.claude/.memories-repo...\n",
+  "stderr": "fatal: could not create work tree dir '<TMP>/work/project/.claude/.memories-repo': Permission denied\n",
+  "code": 128,
+  "git": ""
+}

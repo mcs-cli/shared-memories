@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories [review mode]: 1 pending file(s) in memories/\n+ NEW  <file://<TMP>/work/project/.claude/.memories-repo/memories/learning_new_thing.md>\n       \"safe[31mRED text\"\n\nApprove all:           /approve-memories  [optional commit reason]\nDiscard local changes: git -C .claude/.memories-repo checkout -- memories/ \\\n                       && git -C .claude/.memories-repo clean -f -- memories/\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? .review-shown | ?? memories/learning_new_thing.md\nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: ?? memories/learning_new_thing.md\nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: present\nworktree: learning_new_thing.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

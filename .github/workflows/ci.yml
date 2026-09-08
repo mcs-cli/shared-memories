@@ -1,0 +1,77 @@
+name: ci
+
+# macOS only, deliberately: mcs is a Swift/Homebrew tool that installs on macOS,
+# so it is the only platform that can actually install this pack. The suite runs
+# the hooks exactly as mcs does, by executing them and letting the shebang pick
+# the interpreter.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.6 is the floor: `--experimental-strip-types` does not exist below it,
+        # and a bare '22' resolves to current 22.x, which cannot reach that range.
+        node: ['22.6.0', '22', '24']
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: node is new enough to strip types
+        run: |
+          command -v git >/dev/null || { echo "::error::git is required"; exit 1; }
+          node --experimental-strip-types -e 'const [maj, min] = process.versions.node.split(".").map(Number);
+            if (maj < 22 || (maj === 22 && min < 6)) { console.error("::error::node " + process.versions.node + " cannot strip types"); process.exit(1); }
+            console.log("node " + process.versions.node + " strips types");'
+
+      - name: install typecheck deps (CI-only, never shipped)
+        run: npm install --no-save --silent typescript@5.9.2 @types/node@22.9.0
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: unit, contract and behaviour tests
+        run: npm test
+
+      # A migration artifact: it pinned the premise that commit subjects were
+      # unchanged by the port. Cheap to keep, not load-bearing going forward.
+      - name: the hostname equivalence holds on this runner
+        run: |
+          from_shell=$(hostname -s)
+          from_node=$(node -e 'process.stdout.write(require("node:os").hostname().split(".")[0])')
+          echo "shell='$from_shell' node='$from_node'"
+          [ "$from_shell" = "$from_node" ] || { echo "::error::hostname -s and os.hostname() disagree"; exit 1; }
+
+      # The pack contains no shell at all. Hooks and pack scripts are TypeScript
+      # executed through their shebang.
+      - name: no shell crept back in
+        run: |
+          stray=$(find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::this pack contains no shell scripts"
+            echo "$stray"
+            exit 1
+          fi
+
+      # A test that writes outside its temp dir is a bug wherever it lands.
+      - name: the test run left the working tree clean
+        run: |
+          residue=$(git status --porcelain --untracked-files=all)
+          if [ -n "$residue" ]; then
+            echo "::error::the test run left files behind"
+            echo "$residue"
+            exit 1
+          fi
