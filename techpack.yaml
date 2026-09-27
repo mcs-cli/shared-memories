@@ -52,8 +52,6 @@ components:
   - id: runtime
     displayName: Shared memories runtime
     description: The library the hooks import. Installed beside them, in .claude/hooks/shared-memories/lib/. `.mts` so module type never depends on the consumer's package.json.
-    isRequired: true
-    dependencies: [node]
     type: configuration
     installAction:
       type: copyPackFile
@@ -65,7 +63,6 @@ components:
   - id: hook-memories-pull
     displayName: Pull shared memories and flag stuck state
     description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, emits a system-reminder warning so the engineer knows.
-    dependencies: [node, runtime]
     hookEvent: SessionStart
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 15
@@ -76,7 +73,6 @@ components:
   - id: hook-memories-autopush
     displayName: Sync shared memories
     description: After Claude stops, handles new/modified memory files according to MEMORIES_AUTOPUSH_MODE (auto/full/review). Default auto matches today — writes auto-pushed, deletions parked for manual review. Unconventional filenames halt everything until fixed in all modes. See README for the mode reference.
-    dependencies: [node, runtime]
     hookEvent: Stop
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 30
@@ -96,7 +92,6 @@ components:
   - id: hook-memories-announce
     displayName: Surface review-mode memory writes to Claude
     description: PostToolUse hook that injects additionalContext after a memory file is written, only when MEMORIES_AUTOPUSH_MODE=review. Lets Claude proactively mention pending memory review in conversation. Silent in auto/full modes.
-    dependencies: [node, runtime]
     hookEvent: PostToolUse
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookMatcher: Write|Edit|MultiEdit
@@ -113,7 +108,6 @@ components:
 
   - id: gitignore
     description: Globally ignore the memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos
-    isRequired: true
     gitignore:
       - .claude/memories
       - .claude/.memories-repo
