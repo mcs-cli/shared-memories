@@ -1,23 +1,21 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 
-export type HookName = "pull" | "autopush" | "announce";
+export type HookName = "pull" | "autopush";
 
 const HOOK_FILE: Record<HookName, string> = {
 	pull: "pull.mts",
 	autopush: "autopush.mts",
-	announce: "announce.mts",
 };
 
 const EVENT: Record<HookName, string> = {
 	pull: "SessionStart",
 	autopush: "Stop",
-	announce: "PostToolUse",
 };
 
 const GOLDEN_DIR = join(REPO, "tests", "golden");
@@ -36,7 +34,6 @@ export function normalizeRun(r: RunResult, root: string): RunResult {
 			.split(root)
 			.join("<TMP>")
 			.replace(/\.memories-migration-\d{8}-\d{6}/g, ".memories-migration-<TS>")
-			.replace(/\(last modified [^)]*\)/g, "(last modified <REL>)")
 			.replace(/\d{4}-\d{2}-\d{2}/g, "<DATE>")
 			.replace(/(deleted by )[0-9a-f]{7,40}/g, "$1<SHA>")
 			.split(host)
@@ -278,10 +275,11 @@ export function gitState(repo: string): string {
 		`tracked-all: ${git(repo, "ls-files").split("\n").filter(Boolean).sort().join(" | ")}`,
 		`status: ${git(repo, "status", "--porcelain", "--", "memories/").split("\n").filter(Boolean).sort().join(" | ")}`,
 		`log: ${git(repo, "log", "--format=%s", "--", "memories/").split("\n").filter(Boolean).join(" | ")}`,
+		// The subject alone hides the per-file list a multi-change commit carries.
+		`head-body: ${git(repo, "log", "-1", "--format=%b").split("\n").filter(Boolean).join(" | ")}`,
 		`upstream: ${upstream || "(none)"}`,
 		`unpushed: ${upstream ? git(repo, "rev-list", "@{u}..HEAD", "--count") : "0"}`,
 		`tracked: ${git(repo, "ls-files", "--", "memories/").split("\n").filter(Boolean).sort().join(" | ")}`,
-		`review-shown: ${existsSync(join(repo, ".review-shown")) ? "present" : "absent"}`,
 		`worktree: ${entries(join(repo, "memories")).join(" ")}`,
 		`remote-log: ${git(repo, "log", "--format=%s", "origin/main").split("\n").filter(Boolean).join(" | ")}`,
 		`remote-files: ${git(repo, "ls-tree", "-r", "--name-only", "origin/main").split("\n").filter(Boolean).sort().join(" | ")}`,

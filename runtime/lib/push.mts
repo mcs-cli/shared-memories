@@ -36,11 +36,11 @@ export function syncToRemote(repo: string, attemptsRaw: string | undefined): voi
 				const abort = git(repo, ["rebase", "--abort"]);
 				if (!abort.ok) {
 					say(
-						"Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Resolve manually in .claude/.memories-repo/memories.",
+						"Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Run /resolve-memories to finish it.",
 					);
 					detail(abort.stderr.replace(/\n$/, ""));
 				} else {
-					say("Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories.");
+					say("Shared memories: auto-push paused — rebase conflict. Run /resolve-memories to merge it.");
 				}
 			} else {
 				say("Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.");

@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: Fixture: 2 added, 1 updated, 1 removed | second seed | seed\ntracked-all: memories/decision_new_two.md | memories/learning_new_one.md | memories/learning_seed_topic.md\nstatus: \nlog: Fixture: 2 added, 1 updated, 1 removed | second seed | seed\nhead-body: + decision_new_two | + learning_new_one | ~ learning_seed_topic | - learning_extra_topic\nupstream: origin/main\nunpushed: 0\ntracked: memories/decision_new_two.md | memories/learning_new_one.md | memories/learning_seed_topic.md\nworktree: decision_new_two.md learning_new_one.md learning_seed_topic.md\nremote-log: Fixture: 2 added, 1 updated, 1 removed | second seed | seed\nremote-files: memories/decision_new_two.md | memories/learning_new_one.md | memories/learning_seed_topic.md"
+}

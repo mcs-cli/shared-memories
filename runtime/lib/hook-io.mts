@@ -36,7 +36,7 @@ export function warn(line: string): void {
 /**
  * The ERR-trap contract: nothing escapes, the hook always exits 0.
  * `exitCode` rather than `exit()`, which does not wait for an async pipe write
- * and can truncate a long review report.
+ * and can truncate a long report.
  */
 export function failOpen(name: string, body: () => void): void {
 	// A reader that goes away is not the hook's failure. Node raises EPIPE as an

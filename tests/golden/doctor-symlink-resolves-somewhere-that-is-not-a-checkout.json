@@ -2,5 +2,5 @@
   "stdout": "Shared memories setup is unhealthy:\n  - symlink exists but doesn't resolve to a git checkout (run 'mcs sync' to repair)\n",
   "stderr": "",
   "code": 1,
-  "git": "status-all: \nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+  "git": "status-all: \nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: seed\nhead-body: \nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nworktree: learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
 }

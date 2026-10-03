@@ -4,13 +4,14 @@ import { spawn } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeProject } from "./harness.ts";
+import { makeProject, memory } from "./harness.ts";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /** Runs a hook with its stdout reader gone before it writes: the EPIPE case. */
-function runWithNoReader(hook: string, env: Record<string, string>, stdin: string) {
-	const { root, project } = makeProject();
+function runWithNoReader(hook: string, stdin: string, setup?: (repo: string) => void) {
+	const { root, project, repo } = makeProject();
+	setup?.(repo);
 	const hooks = join(project, ".claude", "hooks", "shared-memories");
 	mkdirSync(hooks, { recursive: true });
 	cpSync(join(REPO, "runtime", hook), join(hooks, hook));
@@ -20,7 +21,7 @@ function runWithNoReader(hook: string, env: Record<string, string>, stdin: strin
 	return new Promise<{ code: number | null; signal: string | null; stderr: string }>((resolve) => {
 		const child = spawn(join(hooks, hook), [], {
 			cwd: project,
-			env: { ...process.env, ...env },
+			env: process.env,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		let stderr = "";
@@ -36,12 +37,9 @@ function runWithNoReader(hook: string, env: Record<string, string>, stdin: strin
 }
 
 describe("a hook whose reader has gone away", () => {
-	test("announce still exits 0 and reports no stack", async () => {
-		const r = await runWithNoReader(
-			"announce.mts",
-			{ MEMORIES_AUTOPUSH_MODE: "review" },
-			JSON.stringify({ tool_input: { file_path: "/p/.claude/memories/learning_a_b.md" } }),
-		);
+	test("SessionStart still exits 0 and reports no stack", async () => {
+		// Lingering state makes pull write its additionalContext into the closed pipe.
+		const r = await runWithNoReader("pull.mts", "{}", (repo) => memory(repo, "learning_pending_one.md"));
 		assert.equal(r.signal, null, "the hook must not die on SIGPIPE");
 		assert.equal(r.code, 0);
 		assert.doesNotMatch(r.stderr, /EPIPE/, "EPIPE must not surface as a failure");

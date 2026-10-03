@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { hostname } from "node:os";
 
 export type GitRun = {
 	readonly ok: boolean;
@@ -60,6 +62,27 @@ export function unpushedCount(dir: string): number {
 	const out = gitOut(dir, ["rev-list", "@{u}..HEAD", "--count"]);
 	const n = Number.parseInt(out, 10);
 	return Number.isNaN(n) ? 0 : n;
+}
+
+/**
+ * A rebase or merge someone left half-finished. Staging then would mark the
+ * conflicted files resolved, markers and all, and commit into the detached HEAD.
+ */
+export function operationInProgress(dir: string): "rebase" | "merge" | null {
+	const exists = (name: string): boolean => {
+		const p = gitOut(dir, ["rev-parse", "--path-format=absolute", "--git-path", name]);
+		return p !== "" && existsSync(p);
+	};
+	if (exists("rebase-merge") || exists("rebase-apply")) return "rebase";
+	if (exists("MERGE_HEAD")) return "merge";
+	return null;
+}
+
+/** The name git will author the next commit with, or the short hostname when git has none. */
+export function authorName(dir: string): string {
+	const ident = gitOut(dir, ["var", "GIT_AUTHOR_IDENT"]);
+	const name = /^(.*?) </.exec(ident)?.[1]?.trim() ?? "";
+	return name !== "" ? name : (hostname().split(".")[0] ?? "");
 }
 
 /** Whether the binary exists, the question `command -v git` asked. */

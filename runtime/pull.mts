@@ -1,9 +1,7 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
-import { rmSync } from "node:fs";
-import { join } from "node:path";
 import { additionalContext, failOpen, isJsonStream, readStdin, warn } from "./lib/hook-io.mts";
-import { gitLines, gitPresent, isWorkTree, unpushedCount, git } from "./lib/git.mts";
-import { MODES, resolveMode } from "./lib/mode.mts";
+import { git, gitPresent, hasUpstream, isWorkTree, operationInProgress, unpushedCount } from "./lib/git.mts";
+import { uncommittedCount } from "./lib/pending.mts";
 import { memoriesRepo, projectRoot } from "./lib/paths.mts";
 
 const NAME = "memories_pull";
@@ -18,41 +16,38 @@ failOpen(NAME, () => {
 		return warn(`${NAME}: ${repo} is not a git worktree; skipping (project_root=${project})`);
 	}
 
-	const raw = process.env["MEMORIES_AUTOPUSH_MODE"];
-	const { mode, unrecognised } = resolveMode(raw);
-	const modeWarning =
-		unrecognised === null
-			? ""
-			: `Shared memories: unknown MEMORIES_AUTOPUSH_MODE='${unrecognised}' — falling back to auto. Fix the value in .claude/settings.local.json (valid: ${MODES.join(", ")}) and restart the session.`;
+	const op = operationInProgress(repo);
+	if (op !== null) {
+		additionalContext(
+			"SessionStart",
+			`Shared memories: a ${op} is in progress in .claude/.memories-repo, so auto-push is paused and teammates' memories were not pulled. Run /resolve-memories to finish it.`,
+		);
+		return;
+	}
+
+	// Without an upstream every Stop commits locally and nothing ever reaches the team.
+	if (!hasUpstream(repo)) {
+		additionalContext(
+			"SessionStart",
+			"Shared memories: the checkout in .claude/.memories-repo has no upstream branch, so memories are committed locally but never pushed or pulled. Run /resolve-memories to fix it.",
+		);
+		return;
+	}
 
 	git(repo, ["pull", "--ff-only", "--quiet"]);
 
-	if (mode === "review") {
-		try {
-			rmSync(join(repo, ".review-shown"), { force: true });
-		} catch {
-			/* the bash ignores this too */
-		}
-	}
-
-	const uncommitted = gitLines(repo, ["status", "--porcelain", "--", "memories/"]).length;
+	const uncommitted = uncommittedCount(repo);
 	const unpushed = unpushedCount(repo);
+	if (uncommitted === 0 && unpushed === 0) return;
 
-	let pending = "";
-	if (uncommitted > 0 || unpushed > 0) {
-		const joined =
-			uncommitted > 0 && unpushed > 0
-				? `${uncommitted} uncommitted file(s), ${unpushed} unpushed commit(s)`
-				: uncommitted > 0
-					? `${uncommitted} uncommitted file(s)`
-					: `${unpushed} unpushed commit(s)`;
-		pending =
-			mode === "review"
-				? `Shared memories: ${joined} awaiting review (MEMORIES_AUTOPUSH_MODE=review). End a turn to see the per-file report with approve/discard commands.`
-				: `Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/{learning,decision}_<name>.md). The next Stop will retry automatically.`;
-	}
-
-	const msg = modeWarning && pending ? `${modeWarning}\n\n${pending}` : modeWarning || pending;
-	if (msg === "") return;
-	additionalContext("SessionStart", msg);
+	const joined =
+		uncommitted > 0 && unpushed > 0
+			? `${uncommitted} uncommitted file(s), ${unpushed} unpushed commit(s)`
+			: uncommitted > 0
+				? `${uncommitted} uncommitted file(s)`
+				: `${unpushed} unpushed commit(s)`;
+	additionalContext(
+		"SessionStart",
+		`Shared memories have lingering state: ${joined}. The previous Stop hook's auto-push didn't complete. The next Stop retries automatically. If it keeps failing: run /resolve-memories for a rebase conflict or misnamed files (must match memories/{learning,decision}_<name>.md); for auth, check ssh-add or run mcs doctor.`,
+	);
 });

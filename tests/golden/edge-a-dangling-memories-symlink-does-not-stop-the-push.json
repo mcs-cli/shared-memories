@@ -2,5 +2,5 @@
   "stdout": "",
   "stderr": "",
   "code": 0,
-  "git": "status-all: \nlog-all: auto: memories from <HOST> <DATE> | seed\ntracked-all: memories/learning_seed_topic.md | memories/learning_x_y.md\nstatus: \nlog: auto: memories from <HOST> <DATE> | seed\nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md | memories/learning_x_y.md\nreview-shown: absent\nworktree: learning_seed_topic.md learning_x_y.md\nremote-log: auto: memories from <HOST> <DATE> | seed\nremote-files: memories/learning_seed_topic.md | memories/learning_x_y.md"
+  "git": "status-all: \nlog-all: Fixture: add learning_x_y | seed\ntracked-all: memories/learning_seed_topic.md | memories/learning_x_y.md\nstatus: \nlog: Fixture: add learning_x_y | seed\nhead-body: \nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md | memories/learning_x_y.md\nworktree: learning_seed_topic.md learning_x_y.md\nremote-log: Fixture: add learning_x_y | seed\nremote-files: memories/learning_seed_topic.md | memories/learning_x_y.md"
 }
