@@ -1,5 +1,7 @@
 ---
 description: Fix what the shared-memories Stop hook can't fix on its own, then push
+argument-hint: "[reason]"
+disable-model-invocation: true
 ---
 
 # Resolve Shared Memories
