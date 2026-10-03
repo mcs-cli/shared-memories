@@ -15,13 +15,13 @@ All git commands run against the memories repo as `git -C .claude/.memories-repo
 - `git -C .claude/.memories-repo status --porcelain -- memories/`: dirty files
 - `git -C .claude/.memories-repo rev-parse --abbrev-ref --symbolic-full-name '@{u}'`: the upstream (fails if none)
 - `git -C .claude/.memories-repo rev-list '@{u}..HEAD' --count`: unpushed commits
-- whether `git -C .claude/.memories-repo rev-parse --git-path rebase-merge` or `rebase-apply` exists: a rebase in progress
+- `git -C .claude/.memories-repo rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply --git-path MERGE_HEAD`: if any of the three printed paths exists, a rebase (or merge) is in progress. The paths must be absolute: a relative one resolves against the project root and checks the wrong `.git`
 
-If nothing is dirty, nothing is unpushed, an upstream exists and no rebase is in progress, report **"Nothing to resolve."** and stop.
+If nothing is dirty, nothing is unpushed, an upstream exists and no rebase or merge is in progress, report **"Nothing to resolve."** and stop.
 
-## 2. A rebase already in progress
+## 2. A rebase or merge already in progress
 
-Go straight to step 6 and finish it. Don't commit anything new first.
+Go straight to step 6 and finish it. Don't commit anything new first. For a merge (`MERGE_HEAD`), resolve the conflicts the same way, then finish with `git -C .claude/.memories-repo commit --no-edit`.
 
 ## 3. Filename guardrail
 

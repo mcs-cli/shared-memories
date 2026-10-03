@@ -47,9 +47,11 @@ failOpen(NAME, () => {
 
 		stage(repo, ["add", "-A", "--", "memories/"]);
 
-		const changes = stagedChanges(repo);
-		if (changes.length > 0) {
-			const commit = git(repo, ["commit", "-m", commitMessage(authorName(repo), changes), "--quiet"]);
+		// Whether to commit is git's call; the parsed list only words the message, so a
+		// status it can't classify still commits (or fails loudly) instead of skipping.
+		if (!git(repo, ["diff", "--cached", "--quiet", "--", "memories/"]).ok) {
+			const msg = commitMessage(authorName(repo), stagedChanges(repo));
+			const commit = git(repo, ["commit", "-m", msg, "--quiet"]);
 			if (!commit.ok) {
 				say("Shared memories: commit failed; will retry on next Stop.");
 				detail(`${commit.stdout}${commit.stderr}`.replace(/\n$/, ""));
