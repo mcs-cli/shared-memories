@@ -1,10 +1,10 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { authorName, git, gitPresent, isWorkTree, operationInProgress, unpushedCount } from "./lib/git.mts";
 import { commitMessage, stagedChanges } from "./lib/commit-message.mts";
-import { failOpen, isJsonStream, readStdin, say, warn } from "./lib/hook-io.mts";
+import { detail, failOpen, isJsonStream, readStdin, say, warn } from "./lib/hook-io.mts";
 import { badNames, uncommittedCount } from "./lib/pending.mts";
 import { memoriesRepo, projectRoot } from "./lib/paths.mts";
-import { RENAME_HINT } from "./lib/naming.mts";
+import { RENAME_HINT, RESOLVE_COMMAND } from "./lib/naming.mts";
 import { syncToRemote } from "./lib/push.mts";
 
 const NAME = "memories_autopush";
@@ -27,7 +27,7 @@ failOpen(NAME, () => {
 
 	const op = operationInProgress(repo);
 	if (op !== null) {
-		say(`Shared memories: a ${op} is in progress in .claude/.memories-repo — auto-push paused. Run /resolve-memories to finish it.`);
+		say(`Shared memories: a ${op} is in progress in .claude/.memories-repo — auto-push paused. Run ${RESOLVE_COMMAND} to finish it.`);
 		return;
 	}
 
@@ -41,19 +41,18 @@ failOpen(NAME, () => {
 			say("Shared memories: skipping auto-push — unconventional filename(s):");
 			for (const f of bad) say(`  - ${f}`);
 			say(RENAME_HINT);
-			say("Or run /resolve-memories to have Claude rename them.");
+			say(`Or run ${RESOLVE_COMMAND} to have Claude rename them.`);
 			return;
 		}
 
 		stage(repo, ["add", "-A", "--", "memories/"]);
 
-		if (!git(repo, ["diff", "--cached", "--quiet", "--", "memories/"]).ok) {
-			const msg = commitMessage(authorName(repo), stagedChanges(repo));
-			const commit = git(repo, ["commit", "-m", msg, "--quiet"]);
+		const changes = stagedChanges(repo);
+		if (changes.length > 0) {
+			const commit = git(repo, ["commit", "-m", commitMessage(authorName(repo), changes), "--quiet"]);
 			if (!commit.ok) {
 				say("Shared memories: commit failed; will retry on next Stop.");
-				const err = `${commit.stdout}${commit.stderr}`.replace(/\n$/, "");
-				if (err !== "") process.stdout.write(`  ${err}\n`);
+				detail(`${commit.stdout}${commit.stderr}`.replace(/\n$/, ""));
 				return;
 			}
 			unpushed = unpushedCount(repo);

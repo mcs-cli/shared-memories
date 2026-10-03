@@ -8,25 +8,18 @@ export function readStdin(): string {
 	}
 }
 
-export function parseJson(raw: string): unknown {
-	try {
-		return JSON.parse(raw) as unknown;
-	} catch {
-		return undefined;
-	}
-}
-
 /** Matches `jq -n` output: two-space indent, trailing newline. */
-export function emitJson(value: unknown): void {
-	process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-}
-
 export function additionalContext(hookEventName: string, ctx: string): void {
-	emitJson({ hookSpecificOutput: { hookEventName, additionalContext: ctx } });
+	process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName, additionalContext: ctx } }, null, 2)}\n`);
 }
 
 export function say(line: string): void {
 	process.stdout.write(`${line}\n`);
+}
+
+/** Git's error under a message, `printf '  %s\n' "$err"`: the first line indented, nothing if empty. */
+export function detail(err: string): void {
+	if (err !== "") process.stdout.write(`  ${err}\n`);
 }
 
 export function warn(line: string): void {
@@ -101,7 +94,7 @@ function scanString(s: string, start: number): number {
  * are both valid, and JSON.parse rejects both. Used as a validity gate, the
  * difference decides whether a hook does its work at all.
  */
-export function streamValues(raw: string): unknown[] | null {
+function streamValues(raw: string): unknown[] | null {
 	const values: unknown[] = [];
 	let i = 0;
 	while (i < raw.length) {

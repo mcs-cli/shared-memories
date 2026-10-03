@@ -210,6 +210,13 @@ const otherClonePushes = (repo: string, project: string, file: string, body: str
 	git(other, "push", "-q");
 };
 
+/** A teammate pushed an edit to the seed memory, and we committed a different one. */
+const conflictingEdit = (repo: string, project: string) => {
+	otherClonePushes(repo, project, "learning_seed_topic.md", "Their version of the seed.\n");
+	memory(repo, "learning_seed_topic.md", "Our version of the seed.\n");
+	commit(repo, "our conflicting edit");
+};
+
 const push: readonly Fixture[] = [
 	{
 		name: "push: a rejected push rebases and retries into success",
@@ -224,11 +231,7 @@ const push: readonly Fixture[] = [
 		name: "push: a rebase conflict pauses and aborts",
 		expect: /^Shared memories: auto-push paused — rebase conflict\. Run \/resolve-memories to merge it\.$/m,
 		hook: "autopush",
-		setup: (repo, project) => {
-			otherClonePushes(repo, project, "learning_seed_topic.md", "Their version of the seed.\n");
-			memory(repo, "learning_seed_topic.md", "Our version of the seed.\n");
-			commit(repo, "our conflicting edit");
-		},
+		setup: conflictingEdit,
 	},
 	{
 		name: "push: an unreachable remote reports auth or network",
@@ -375,9 +378,7 @@ describe("incoming memories — behaviour is pinned", () => {
 
 /** Our edit conflicts with a teammate's, and the rebase is left mid-way with the file unmerged. */
 const rebaseLeftInProgress = (repo: string, project: string) => {
-	otherClonePushes(repo, project, "learning_seed_topic.md", "Their version of the seed.\n");
-	memory(repo, "learning_seed_topic.md", "Our version of the seed.\n");
-	commit(repo, "our conflicting edit");
+	conflictingEdit(repo, project);
 	git(repo, "pull", "--rebase", "-q");
 	memory(repo, "learning_new_thing.md", "Written while the rebase was stuck.\n");
 };

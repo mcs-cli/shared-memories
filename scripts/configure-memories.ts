@@ -2,7 +2,8 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { authorName, git, gitLines, gitOut, gitPresent, isWorkTree } from "../runtime/lib/git.mts";
-import { ALLOWED_PATTERN } from "../runtime/lib/naming.mts";
+import { ALLOWED_PATTERN, RESOLVE_COMMAND } from "../runtime/lib/naming.mts";
+import { changeLine } from "../runtime/lib/commit-message.mts";
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
 const err = (line: string) => process.stderr.write(`${line}\n`);
@@ -244,7 +245,7 @@ function main(): void {
 				if (!add.ok) process.exit(add.exit ?? 1);
 			}
 			// Unchecked, the push below succeeds vacuously and reports one that never happened.
-			const body = good.map((f) => `+ ${f.replace(/^memories\//, "").replace(/\.md$/, "")}`).join("\n");
+			const body = good.map((path) => changeLine({ kind: "add", path })).join("\n");
 			const msg = `${authorName(repoDir)}: migrate ${good.length} local memor${good.length === 1 ? "y" : "ies"}\n\n${body}`;
 			const commit = git(repoDir, ["commit", "-m", msg, "--quiet"], { inheritStderr: true });
 			if (!commit.ok) process.exit(commit.exit ?? 1);
@@ -256,7 +257,7 @@ function main(): void {
 				}
 			} else {
 				git(repoDir, ["rebase", "--abort"]);
-				out("Migrated memories committed locally; a rebase conflict blocked the push. Run /resolve-memories in a Claude session to merge it.");
+				out(`Migrated memories committed locally; a rebase conflict blocked the push. Run ${RESOLVE_COMMAND} in a Claude session to merge it.`);
 			}
 		}
 

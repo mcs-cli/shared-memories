@@ -4,23 +4,38 @@ export type Change =
 	| { readonly kind: "add" | "update" | "remove"; readonly path: string }
 	| { readonly kind: "rename"; readonly path: string; readonly from: string };
 
+/** Every kind once: its body mark and summary word, in the order the body lists them. */
+const KINDS = {
+	add: { mark: "+", past: "added" },
+	update: { mark: "~", past: "updated" },
+	rename: { mark: ">", past: "renamed" },
+	remove: { mark: "-", past: "removed" },
+} as const;
+const ORDER = Object.keys(KINDS) as Change["kind"][];
+
 /** `memories/learning_a_b.md` → `learning_a_b`: the path prefix and extension carry nothing. */
 const short = (p: string): string => p.replace(/^memories\//, "").replace(/\.md$/, "");
+
+const names = (c: Change): string => (c.kind === "rename" ? `${short(c.from)} → ${short(c.path)}` : short(c.path));
+
+/** One body line per change, `+ learning_a_b`. */
+export const changeLine = (c: Change): string => `${KINDS[c.kind].mark} ${names(c)}`;
 
 /** One `git diff --name-status` line. Copies (C) are new files as far as the team is concerned. */
 export function parseNameStatus(line: string): Change | null {
 	const [status = "", a = "", b = ""] = line.split("\t");
+	if (a === "") return null;
 	switch (status[0]) {
 		case "A":
 		case "C":
-			return a === "" ? null : { kind: "add", path: b || a };
+			return { kind: "add", path: b || a };
 		case "M":
 		case "T":
-			return a === "" ? null : { kind: "update", path: a };
+			return { kind: "update", path: a };
 		case "D":
-			return a === "" ? null : { kind: "remove", path: a };
+			return { kind: "remove", path: a };
 		case "R":
-			return a === "" || b === "" ? null : { kind: "rename", path: b, from: a };
+			return b === "" ? null : { kind: "rename", path: b, from: a };
 		default:
 			return null;
 	}
@@ -33,10 +48,8 @@ export function stagedChanges(repo: string): Change[] {
 		.filter((c): c is Change => c !== null);
 }
 
-const MARK = { add: "+", update: "~", remove: "-", rename: ">" } as const;
-
-const line = (c: Change): string =>
-	c.kind === "rename" ? `${MARK.rename} ${short(c.from)} → ${short(c.path)}` : `${MARK[c.kind]} ${short(c.path)}`;
+const byKindThenPath = (x: Change, y: Change): number =>
+	ORDER.indexOf(x.kind) - ORDER.indexOf(y.kind) || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0);
 
 /**
  * `<who>: add learning_x` for a single change; otherwise a count summary in the
@@ -44,25 +57,14 @@ const line = (c: Change): string =>
  * the date is already in the commit.
  */
 export function commitMessage(who: string, changes: readonly Change[]): string {
-	if (changes.length === 0) return `${who}: update memories`;
-	if (changes.length === 1) {
-		const [c] = changes as [Change];
-		const what = c.kind === "rename" ? `rename ${short(c.from)} → ${short(c.path)}` : `${c.kind} ${short(c.path)}`;
-		return `${who}: ${what}`;
-	}
-	const count = (k: Change["kind"]) => changes.filter((c) => c.kind === k).length;
-	const parts = (
-		[
-			["add", "added"],
-			["update", "updated"],
-			["rename", "renamed"],
-			["remove", "removed"],
-		] as const
-	)
-		.map(([k, label]) => [count(k), label] as const)
-		.filter(([n]) => n > 0)
-		.map(([n, label]) => `${n} ${label}`);
-	const order = { add: 0, update: 1, rename: 2, remove: 3 } as const;
-	const body = [...changes].sort((x, y) => order[x.kind] - order[y.kind] || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0)).map(line);
-	return `${who}: ${parts.join(", ")}\n\n${body.join("\n")}`;
+	const [only] = changes;
+	if (only === undefined) return `${who}: update memories`;
+	if (changes.length === 1) return `${who}: ${only.kind} ${names(only)}`;
+
+	const summary = ORDER.flatMap((k) => {
+		const n = changes.filter((c) => c.kind === k).length;
+		return n > 0 ? [`${n} ${KINDS[k].past}`] : [];
+	});
+	const body = [...changes].sort(byKindThenPath).map(changeLine);
+	return `${who}: ${summary.join(", ")}\n\n${body.join("\n")}`;
 }

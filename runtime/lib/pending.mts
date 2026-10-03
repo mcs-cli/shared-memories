@@ -9,6 +9,6 @@ export function uncommittedCount(repo: string): number {
 export function badNames(repo: string): string[] {
 	const tracked = gitLines(repo, ["diff", "--name-only", "HEAD", "--", "memories/"]);
 	const untracked = gitLines(repo, ["ls-files", "--others", "--exclude-standard", "--full-name", "--", "memories/"]);
-	const dirty = [...new Set([...tracked, ...untracked])].filter((f) => f !== "").sort();
+	const dirty = [...new Set([...tracked, ...untracked])].sort();
 	return dirty.filter((f) => !ALLOWED_PATTERN.test(f));
 }
