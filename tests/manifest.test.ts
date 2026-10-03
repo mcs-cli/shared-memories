@@ -24,7 +24,7 @@ describe("techpack manifest", () => {
 	test("every hook declares the interpreter mcs runs it with", () => {
 		// `.mts` is in mcs's ambiguousExtensions, so without this it falls back to bash.
 		const declared = manifest.match(/hookInterpreter: node --experimental-strip-types/g) ?? [];
-		assert.equal(declared.length, 3, "each of the three hooks needs its own hookInterpreter");
+		assert.equal(declared.length, 2, "each of the two hooks needs its own hookInterpreter");
 		assert.match(manifest, /minMCSVersion: "2026\.9\.3"/, "the interpreter field needs the release that honours it");
 	});
 
@@ -50,8 +50,8 @@ describe("techpack manifest", () => {
 describe("hook install contract", () => {
 	const dests = [...manifest.matchAll(/destination:\s*(\S+\.mts)/g)].map((m) => m[1] as string);
 
-	test("three hooks are registered, all TypeScript", () => {
-		assert.equal(dests.length, 3, "expected three registered hook entry points");
+	test("two hooks are registered, all TypeScript", () => {
+		assert.equal(dests.length, 2, "expected two registered hook entry points");
 		for (const d of dests) assert.ok(existsSync(join(REPO, "runtime", d)), `${d} is registered but not shipped`);
 	});
 
@@ -119,9 +119,9 @@ describe("hook install contract", () => {
 
 describe("the naming rule has one definition", () => {
 	test("the slash command documents the pattern the code enforces", () => {
-		const cmd = readFileSync(join(REPO, "commands", "approve-memories.md"), "utf8");
+		const cmd = readFileSync(join(REPO, "commands", "resolve-memories.md"), "utf8");
 		const m = /\^memories\/\(learning\|decision\)_\[a-zA-Z0-9_-\]\+\\\.md\$/.exec(cmd);
-		assert.ok(m, "approve-memories.md no longer documents the guardrail pattern");
+		assert.ok(m, "resolve-memories.md no longer documents the guardrail pattern");
 		assert.equal(ALLOWED_PATTERN.source, "^memories\\/(learning|decision)_[a-zA-Z0-9_-]+\\.md$");
 	});
 

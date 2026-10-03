@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories: a rebase is in progress in .claude/.memories-repo — auto-push paused. Run /resolve-memories to finish it.\n",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: ?? memories/learning_new_thing.md | UU memories/learning_seed_topic.md\nlog-all: from the other clone | seed\ntracked-all: memories/learning_seed_topic.md | memories/learning_seed_topic.md | memories/learning_seed_topic.md\nstatus: ?? memories/learning_new_thing.md | UU memories/learning_seed_topic.md\nlog: from the other clone | seed\nhead-body: \nupstream: (none)\nunpushed: 0\ntracked: memories/learning_seed_topic.md | memories/learning_seed_topic.md | memories/learning_seed_topic.md\nworktree: learning_new_thing.md learning_seed_topic.md\nremote-log: from the other clone | seed\nremote-files: memories/learning_seed_topic.md"
+}

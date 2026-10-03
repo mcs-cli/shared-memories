@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: Fixture: update learning_seed_topic | seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: Fixture: update learning_seed_topic | seed\nhead-body: \nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nworktree: learning_seed_topic.md\nremote-log: Fixture: update learning_seed_topic | seed\nremote-files: memories/learning_seed_topic.md"
+}

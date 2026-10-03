@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 export type GitRun = {
 	readonly ok: boolean;
@@ -55,11 +56,43 @@ export function hasUpstream(dir: string): boolean {
 	return git(dir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).ok;
 }
 
-export function unpushedCount(dir: string): number {
-	if (!hasUpstream(dir)) return 0;
-	const out = gitOut(dir, ["rev-list", "@{u}..HEAD", "--count"]);
-	const n = Number.parseInt(out, 10);
+/** Commits on HEAD the upstream lacks. Assumes an upstream; `unpushedCount` checks first. */
+export function aheadOfUpstream(dir: string): number {
+	const n = Number.parseInt(gitOut(dir, ["rev-list", "@{u}..HEAD", "--count"]), 10);
 	return Number.isNaN(n) ? 0 : n;
+}
+
+export function unpushedCount(dir: string): number {
+	return hasUpstream(dir) ? aheadOfUpstream(dir) : 0;
+}
+
+/**
+ * A rebase or merge someone left half-finished. Staging then would mark the
+ * conflicted files resolved, markers and all, and commit into the detached HEAD.
+ */
+export function operationInProgress(dir: string): "rebase" | "merge" | null {
+	const paths = gitLines(dir, [
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-path",
+		"rebase-merge",
+		"--git-path",
+		"rebase-apply",
+		"--git-path",
+		"MERGE_HEAD",
+	]);
+	const [rebaseMerge, rebaseApply, mergeHead] = paths.map((p) => existsSync(p));
+	if (rebaseMerge === true || rebaseApply === true) return "rebase";
+	if (mergeHead === true) return "merge";
+	return null;
+}
+
+/**
+ * The name git will author the next commit with. When git has no identity the
+ * commit itself fails, so the placeholder never reaches a subject.
+ */
+export function authorName(dir: string): string {
+	return /^(.*?) </.exec(gitOut(dir, ["var", "GIT_AUTHOR_IDENT"]))?.[1]?.trim() || "unknown";
 }
 
 /** Whether the binary exists, the question `command -v git` asked. */

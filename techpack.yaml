@@ -26,18 +26,6 @@ prompts:
     label: "Branch name on the shared repo that holds memory files and this pack (e.g. main)"
     default: "main"
 
-  - key: MEMORIES_AUTOPUSH_MODE
-    type: select
-    label: "Stop-hook auto-push behavior"
-    options:
-      - value: auto
-        label: "auto — writes auto-pushed, deletions parked (default)"
-      - value: full
-        label: "full — writes AND deletions auto-pushed"
-      - value: review
-        label: "review — nothing auto, per-turn pending-changes report"
-    default: auto
-
 components:
   # ── Dependencies ──────────────────────────────────────────
   - id: node
@@ -62,7 +50,7 @@ components:
   # ── Hooks ─────────────────────────────────────────────────
   - id: hook-memories-pull
     displayName: Pull shared memories and flag stuck state
-    description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, emits a system-reminder warning so the engineer knows.
+    description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, a rebase is left half-finished, or the checkout has no upstream, emits a system-reminder so the engineer knows.
     hookEvent: SessionStart
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 15
@@ -72,7 +60,7 @@ components:
 
   - id: hook-memories-autopush
     displayName: Sync shared memories
-    description: After Claude stops, handles new/modified memory files according to MEMORIES_AUTOPUSH_MODE (auto/full/review). Default auto matches today — writes auto-pushed, deletions parked for manual review. Unconventional filenames halt everything until fixed in all modes. See README for the mode reference.
+    description: After Claude stops, commits every change under memories/ — additions, edits and deletions — as the git user, then rebases and pushes. Unconventional filenames halt everything until renamed.
     hookEvent: Stop
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 30
@@ -82,30 +70,14 @@ components:
       destination: autopush.mts
 
   # ── Commands ──────────────────────────────────────────────
-  - id: command-approve-memories
-    displayName: /approve-memories command
-    description: Slash command that stages, commits, pulls --rebase, and pushes all pending memory files. Primary use is `MEMORIES_AUTOPUSH_MODE=review` — the per-turn report tells both Claude and the user to invoke this to approve pending changes. Also unblocks state stuck from a previous push failure in auto/full mode.
+  - id: command-resolve-memories
+    displayName: /resolve-memories command
+    description: Slash command for what the Stop hook can't fix on its own — merges rebase conflicts, renames files the naming guardrail rejects, restores a missing upstream — then commits and pushes. Diagnoses auth and git-identity failures, which need a human.
     command:
-      source: commands/approve-memories.md
-      destination: approve-memories.md
-
-  - id: hook-memories-announce
-    displayName: Surface review-mode memory writes to Claude
-    description: PostToolUse hook that injects additionalContext after a memory file is written, only when MEMORIES_AUTOPUSH_MODE=review. Lets Claude proactively mention pending memory review in conversation. Silent in auto/full modes.
-    hookEvent: PostToolUse
-    hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
-    hookMatcher: Write|Edit|MultiEdit
-    hookTimeout: 5
-    hook:
-      source: runtime/announce.mts
-      destination: announce.mts
+      source: commands/resolve-memories.md
+      destination: resolve-memories.md
 
   # ── Configuration ─────────────────────────────────────────
-  - id: settings
-    displayName: Default auto-push mode
-    description: Writes the chosen MEMORIES_AUTOPUSH_MODE value into .claude/settings.local.json so the Stop hook reads it. Re-run `mcs sync` to change modes, or edit settings.local.json directly.
-    settingsFile: config/settings.json
-
   - id: gitignore
     description: Globally ignore the memories symlink, the backing sparse checkout, and any migration backup dirs so they're never tracked by parent repos
     gitignore:

@@ -1,14 +1,10 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
-import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
-import { join } from "node:path";
-import { git, gitPresent, isWorkTree, unpushedCount } from "./lib/git.mts";
-import { failOpen, isJsonStream, readStdin, say, warn } from "./lib/hook-io.mts";
-import { resolveMode } from "./lib/mode.mts";
-import { badNames, collect, headSha, modifiedPaths, uncommittedCount } from "./lib/pending.mts";
+import { authorName, git, gitPresent, isWorkTree, operationInProgress, unpushedCount } from "./lib/git.mts";
+import { commitMessage, stagedChanges } from "./lib/commit-message.mts";
+import { detail, failOpen, isJsonStream, readStdin, say, warn } from "./lib/hook-io.mts";
+import { badNames, uncommittedCount } from "./lib/pending.mts";
 import { memoriesRepo, projectRoot } from "./lib/paths.mts";
-import { RENAME_HINT } from "./lib/naming.mts";
-import { canonicalState, hashState, lastShownHash, renderReport } from "./lib/report.mts";
+import { RENAME_HINT, RESOLVE_COMMAND } from "./lib/naming.mts";
 import { syncToRemote } from "./lib/push.mts";
 
 const NAME = "memories_autopush";
@@ -17,12 +13,6 @@ const NAME = "memories_autopush";
 const stage = (repo: string, args: readonly string[]): void => {
 	const r = git(repo, args, { inheritStderr: true });
 	if (!r.ok) throw new Error(`git ${args.join(" ")} failed (exit ${r.exit ?? r.failure})`);
-};
-
-const today = (): string => {
-	const d = new Date();
-	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
 failOpen(NAME, () => {
@@ -35,89 +25,42 @@ failOpen(NAME, () => {
 		return warn(`${NAME}: ${repo} is not a git worktree; skipping (project_root=${project})`);
 	}
 
-	const { mode } = resolveMode(process.env["MEMORIES_AUTOPUSH_MODE"]);
-	const reviewState = join(repo, ".review-shown");
-
-	const uncommitted = uncommittedCount(repo);
-	let unpushed = unpushedCount(repo);
-
-	if (uncommitted === 0 && unpushed === 0) {
-		if (mode === "review" && existsSync(reviewState)) rmSync(reviewState, { force: true });
+	const op = operationInProgress(repo);
+	if (op !== null) {
+		say(`Shared memories: a ${op} is in progress in .claude/.memories-repo — auto-push paused. Run ${RESOLVE_COMMAND} to finish it.`);
 		return;
 	}
 
-	const pending = collect(repo, uncommitted, unpushed);
+	const uncommitted = uncommittedCount(repo);
+	let unpushed = unpushedCount(repo);
+	if (uncommitted === 0 && unpushed === 0) return;
 
 	if (uncommitted > 0) {
-		const bad = badNames(repo, pending.untracked);
+		const bad = badNames(repo);
 		if (bad.length > 0) {
 			say("Shared memories: skipping auto-push — unconventional filename(s):");
 			for (const f of bad) say(`  - ${f}`);
 			say(RENAME_HINT);
-			return;
-		}
-	}
-
-	if (mode === "review") {
-		const state = canonicalState(pending, pending.unpushed > 0 ? headSha(repo) : "");
-		if (state === "") {
-			// Renames, typechanges, conflicts, or an unresolvable HEAD reach none of the filters.
-			if (uncommitted > 0) {
-				say(`Shared memories [review mode]: ${uncommitted} unclassified pending change(s) in memories/`);
-				say("  Inspect: git -C .claude/.memories-repo status -- memories/");
-			}
-			if (unpushed > 0) {
-				say(
-					`Shared memories [review mode]: ${unpushed} unpushed commit(s) (HEAD unresolvable — repo may be detached or mid-rebase)`,
-				);
-				say("  Inspect: git -C .claude/.memories-repo status");
-			}
+			say(`Or run ${RESOLVE_COMMAND} to have Claude rename them.`);
 			return;
 		}
 
-		const hash = hashState(state);
-		if (lastShownHash(reviewState) === hash) return;
+		stage(repo, ["add", "-A", "--", "memories/"]);
 
-		for (const line of renderReport(repo, pending)) say(line);
-
-		// Atomic, so a killed hook cannot leave an empty state file behind.
-		writeFileSync(`${reviewState}.tmp`, `${hash}\n`);
-		renameSync(`${reviewState}.tmp`, reviewState);
-		return;
-	}
-
-	let committed = false;
-
-	if (uncommitted > 0) {
-		if (mode === "auto") {
-			if (pending.deleted.length > 0) {
-				say(`Shared memories: ${pending.deleted.length} deleted memory file(s) left for manual review (not auto-pushed):`);
-				for (const f of pending.deleted) say(`  - ${f}`);
-				say("If intentional (e.g. after memory-audit), approve them:");
-				say("  /approve-memories audit cleanup");
-			}
-			const stageable = [...new Set([...modifiedPaths(pending), ...pending.untracked])].filter(Boolean).sort();
-			for (const f of stageable) stage(repo, ["add", "--", f]);
-		} else {
-			stage(repo, ["add", "-A", "--", "memories/"]);
-		}
-
+		// Whether to commit is git's call; the parsed list only words the message, so a
+		// status it can't classify still commits (or fails loudly) instead of skipping.
 		if (!git(repo, ["diff", "--cached", "--quiet", "--", "memories/"]).ok) {
-			const suffix = mode === "full" && pending.deleted.length > 0 ? " (includes deletions)" : "";
-			const msg = `auto: memories from ${hostname().split(".")[0]} ${today()}${suffix}`;
+			const msg = commitMessage(authorName(repo), stagedChanges(repo));
 			const commit = git(repo, ["commit", "-m", msg, "--quiet"]);
-			if (commit.ok) {
-				committed = true;
-			} else {
+			if (!commit.ok) {
 				say("Shared memories: commit failed; will retry on next Stop.");
-				const err = `${commit.stdout}${commit.stderr}`.replace(/\n$/, "");
-				if (err !== "") process.stdout.write(`  ${err}\n`);
+				detail(`${commit.stdout}${commit.stderr}`.replace(/\n$/, ""));
 				return;
 			}
+			unpushed = unpushedCount(repo);
 		}
 	}
 
-	if (committed) unpushed = unpushedCount(repo);
 	if (unpushed === 0) return;
 
 	syncToRemote(repo, process.env["MEMORIES_PUSH_ATTEMPTS"]);

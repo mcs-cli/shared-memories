@@ -1,6 +1,6 @@
 {
-  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories have lingering state: 1 unpushed commit(s). The previous Stop hook's auto-push didn't complete — check SSH auth (ssh-add), network, or file naming (must match memories/{learning,decision}_<name>.md). The next Stop will retry automatically.\"\n  }\n}\n",
+  "stdout": "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Shared memories have lingering state: 1 unpushed commit(s). The previous Stop hook's auto-push didn't complete. The next Stop retries automatically. If it keeps failing: run /resolve-memories for a rebase conflict or misnamed files (must match memories/{learning,decision}_<name>.md); for auth, check ssh-add or run mcs doctor.\"\n  }\n}\n",
   "stderr": "",
   "code": 0,
-  "git": "status-all: \nlog-all: local only | seed\ntracked-all: memories/learning_committed_x.md | memories/learning_seed_topic.md\nstatus: \nlog: local only | seed\nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_committed_x.md | memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_committed_x.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+  "git": "status-all: \nlog-all: local only | seed\ntracked-all: memories/learning_committed_x.md | memories/learning_seed_topic.md\nstatus: \nlog: local only | seed\nhead-body: \nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_committed_x.md | memories/learning_seed_topic.md\nworktree: learning_committed_x.md learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
 }

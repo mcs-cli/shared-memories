@@ -1,6 +1,6 @@
 {
-  "stdout": "Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories.\n",
+  "stdout": "Shared memories: auto-push paused — rebase conflict. Run /resolve-memories to merge it.\n",
   "stderr": "",
   "code": 0,
-  "git": "status-all: \nlog-all: our conflicting edit | seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: our conflicting edit | seed\nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_seed_topic.md\nreview-shown: absent\nworktree: learning_seed_topic.md\nremote-log: from the other clone | seed\nremote-files: memories/learning_seed_topic.md"
+  "git": "status-all: \nlog-all: our conflicting edit | seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: our conflicting edit | seed\nhead-body: \nupstream: origin/main\nunpushed: 1\ntracked: memories/learning_seed_topic.md\nworktree: learning_seed_topic.md\nremote-log: from the other clone | seed\nremote-files: memories/learning_seed_topic.md"
 }

@@ -9,7 +9,7 @@ identifier: shared-memories
 requires:   mcs >= 2026.9.3
 ```
 
-**Contents** — [When is this useful?](#-when-is-this-useful) · [The problem](#-the-problem) · [How it works](#-how-it-works) · [What's included](#-whats-included) · [Installation](#-installation) · [Directory structure](#-directory-structure) · [Migration](#-migration-from-an-existing-local-memories-folder) · [Side branches](#-optional-push-to-a-side-branch) · [Auto-push modes](#-auto-push-modes) · [Deletions](#-intentional-deletion-workflow) · [Troubleshooting](#-troubleshooting) · [Development](#-development)
+**Contents** — [When is this useful?](#-when-is-this-useful) · [The problem](#-the-problem) · [How it works](#-how-it-works) · [What's included](#-whats-included) · [Installation](#-installation) · [Directory structure](#-directory-structure) · [Migration](#-migration-from-an-existing-local-memories-folder) · [Side branches](#-optional-push-to-a-side-branch) · [Conflicts and stuck pushes](#-conflicts-and-stuck-pushes) · [Troubleshooting](#-troubleshooting) · [Development](#-development)
 
 ---
 
@@ -58,10 +58,9 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 | Piece | What | How |
 |-------|------|-----|
-| **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags lingering uncommitted/unpushed state — a stuck auto-push in `auto` / `full` mode, or pending changes awaiting decision in `review` mode |
-| **Stop Hook** | Handles new/modified memory files after each Claude turn per `MEMORIES_AUTOPUSH_MODE` (`auto` / `full` / `review`) | Runs async; filename guardrail blocks bad names in every mode; mode dictates whether deletions auto-push, whether anything is committed at all, and (in `review`) prints the per-turn pending-changes report |
-| **PostToolUse Hook** | Tells Claude in-conversation that a memory was saved in `review` mode, so it can mention pending review and invoke `/approve-memories` when the user confirms | Fires sync after `Write` / `Edit` / `MultiEdit` to `.claude/memories/`; injects `additionalContext` into Claude's next decision step. Silent in `auto` and `full` |
-| **/approve-memories Slash Command** | One shared approval surface both the user and Claude invoke identically — stages, commits, pulls `--rebase`, pushes everything pending under `memories/` | Re-runs the Stop-hook filename guardrail; takes an optional commit-message reason; works in every mode (primary use is `review`; also unblocks state stuck after a push failure in `auto` / `full`) |
+| **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags what would keep your memories from reaching the team: lingering uncommitted/unpushed state, a rebase left half-finished, or a checkout with no upstream |
+| **Stop Hook** | Commits and pushes every memory change after each Claude turn — additions, edits and deletions alike | Runs async; the filename guardrail blocks bad names; commits as the git user with a subject that says what changed; rebases and retries with jitter when a teammate pushed first |
+| **/resolve-memories Slash Command** | Fixes what the Stop hook can't fix by retrying: merges rebase conflicts, renames files the guardrail rejects, restores a missing upstream | Commits, rebases and pushes once the blocker is gone; diagnoses auth and git-identity failures, which need a human |
 | **Sparse Checkout + Symlink** | Keeps the shared repo invisible on disk | `.claude/.memories-repo/` is a blobless single-branch sparse clone; `.claude/memories` is a symlink Claude Code reads from |
 | **CLAUDE.local.md Section** | Tells Claude the memories folder is a shared checkout rather than local scratch, so it doesn't stage memories in the wrong repo, misread an empty `git log` as "no history", or tidy away a teammate's file | An mcs template section (`shared-memories.instructions`) composed into `CLAUDE.local.md` on every `mcs sync`, between `<!-- mcs:begin -->` markers; your own content outside the markers is preserved |
 
@@ -69,15 +68,14 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 1. **First `mcs sync`** — the configure script clones the shared repo sparsely into `.claude/.memories-repo/`, symlinks `.claude/memories` to it, and migrates any pre-existing local memories into the shared folder (conflicts are preserved for manual review)
 
-2. **Session starts** — the SessionStart hook fast-forwards the shared checkout and warns about any lingering state (auth failure / rebase conflict / guardrail-rejected files in `auto` / `full`; pending review items in `review`)
+2. **Session starts** — the SessionStart hook fast-forwards the shared checkout and warns about any lingering state (auth failure, rebase conflict, guardrail-rejected files, a rebase left in progress, no upstream)
 
 3. **During work** — Claude uses the [`continuous-learning`](https://github.com/mcs-cli/memory) skill to write new `learning_*.md` / `decision_*.md` files
 
-4. **Claude finishes a turn** — the Stop hook collects dirty files and dispatches by mode (`MEMORIES_AUTOPUSH_MODE`, see [Auto-Push Modes](#-auto-push-modes)):
-   - **Naming guardrail (all modes)** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
-   - **`auto` (default)** — adds/mods auto-pushed; deletions parked in the working tree for manual review
-   - **`full`** — adds/mods AND deletions auto-pushed in one commit
-   - **`review`** — nothing auto; the hook prints a per-file report and the user (or Claude, via the PostToolUse nudge) invokes `/approve-memories` to push, or runs the discard commands shown in the report
+4. **Claude finishes a turn** — the Stop hook commits everything under `memories/` and pushes it:
+   - **Naming guardrail** — any file failing `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$` halts everything until renamed
+   - **Commit** — additions, edits and deletions in one commit, authored as you: `Ana Souza: add learning_swiftui_previews`, or `Ana Souza: 2 added, 1 removed` with one line per file in the body
+   - **Push** — `pull --rebase --autostash`, then push, retrying with jitter if a teammate pushed first. A conflict pauses the push until `/resolve-memories` merges it
 
 5. **Next session** — teammates pull your new memories via SessionStart and the loop continues
 
@@ -85,17 +83,15 @@ The Stop hook in full, since it is where all the policy lives:
 
 ```mermaid
 flowchart TD
-    A([Claude finishes a turn]) --> B{"anything uncommitted<br/>or unpushed?"}
+    A([Claude finishes a turn]) --> P{"rebase or merge<br/>in progress?"}
+    P -->|yes| Q["pause, ask for<br/>/resolve-memories"] --> Z
+    P -->|no| B{"anything uncommitted<br/>or unpushed?"}
     B -->|no| Z([exit 0])
     B -->|yes| C{"every dirty file matches<br/>memories/learning_*.md<br/>or memories/decision_*.md?"}
     C -->|no| D["list the offenders,<br/>push nothing"] --> Z
-    C -->|yes| E{MEMORIES_AUTOPUSH_MODE}
-    E -->|auto| F["stage adds and mods,<br/>park deletions for review"]
-    E -->|full| G["stage everything,<br/>deletions included"]
-    E -->|review| H["print the per-file report,<br/>commit nothing"]
-    F --> I["commit · pull --rebase --autostash · push<br/>retry with jitter if rejected"]
-    G --> I
-    H --> Z
+    C -->|yes| G["stage everything,<br/>deletions included"]
+    G --> I["commit as the git user ·<br/>pull --rebase --autostash · push<br/>retry with jitter if rejected"]
+    I -->|rebase conflict| R["abort the rebase,<br/>ask for /resolve-memories"] --> Z
     I --> Z
 ```
 
@@ -107,9 +103,8 @@ flowchart TD
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
-| **pull.mts** | `SessionStart` | Fast-forwards the shared memories checkout; emits a mode-aware warning if previous state is stuck (or, in `review` mode, summarises pending review) |
-| **autopush.mts** | `Stop` (async) | Dispatches by `MEMORIES_AUTOPUSH_MODE` mode (`auto` / `full` / `review`); filename guardrail applies in every mode |
-| **announce.mts** | `PostToolUse` (Write/Edit/MultiEdit) | In `review` mode only, surfaces the just-written memory to Claude's context so it mentions pending review in chat. Silent in `auto` and `full` |
+| **pull.mts** | `SessionStart` | Fast-forwards the shared memories checkout; warns when previous state is stuck, a rebase is left in progress, or the checkout has no upstream |
+| **autopush.mts** | `Stop` (async) | Commits every change under `memories/` as the git user, then rebases and pushes; the filename guardrail blocks bad names |
 
 Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarning <path>`: mcs prefixes the interpreter the hook declares in `hookInterpreter`, and never looks at the shebang. They install to `.claude/hooks/shared-memories/`, with the library they import beside them in `lib/`.
 
@@ -117,7 +112,7 @@ Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarn
 
 | Command | What It Does |
 |---------|-------------|
-| **/approve-memories** | Stages, commits, pulls `--rebase`, and pushes everything pending under `memories/`. Primary entry point for `review` mode approval; also unblocks state stuck after a push failure in `auto` / `full` |
+| **/resolve-memories** | Fixes what the Stop hook can't: merges rebase conflicts, renames files the guardrail rejects, restores a missing upstream, finishes a rebase left in progress — then commits and pushes. Diagnoses auth and git-identity failures. See [Conflicts and stuck pushes](#-conflicts-and-stuck-pushes) |
 
 ### Configuration Script
 
@@ -129,7 +124,7 @@ Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarn
 
 | Section | What It Does |
 |---------|-------------|
-| **shared-memories.instructions** | Four facts Claude cannot infer from the filesystem: writes and deletions are proposals to the team's repo; the memory set changes between sessions; the parent project's git doesn't track memories (so `git add` there is a silent no-op); and memory files must be addressed as `git -C .claude/.memories-repo -- memories/<file>` |
+| **shared-memories.instructions** | Four facts Claude cannot infer from the filesystem: writes and deletions reach the team's repo at the end of the turn; the memory set changes between sessions; the parent project's git doesn't track memories (so `git add` there is a silent no-op); and memory files must be addressed as `git -C .claude/.memories-repo -- memories/<file>` |
 
 ### Doctor Checks
 
@@ -183,13 +178,12 @@ During `mcs sync`, you'll be prompted for:
 |--------|-------------|---------|
 | **MEMORIES_REPO_URL** | Clone URL for the shared memories repo, e.g. `git@github.com:org/memories.git` | *(required)* |
 | **MEMORIES_BRANCH** | Branch that holds the memory files and this pack | `main` |
-| **MEMORIES_AUTOPUSH_MODE** | Stop-hook behavior — `auto` (writes auto-pushed, deletions parked), `full` (writes + deletions auto-pushed), or `review` (nothing auto, per-turn report). See [Auto-Push Modes](#-auto-push-modes). | `auto` |
 
 > **Install per-project, not globally.** Run `mcs sync` from each project's root (the directory that contains `.claude/`, not `.claude/` itself) — do **not** install this pack into your user-level `~/.claude/` directory.
 >
 > The hooks anchor on their own on-disk location and operate on a sibling `.memories-repo/` working tree. A single global install would collapse every project onto one shared checkout, which breaks two things:
 >
-> 1. **Concurrent sessions race on the same working tree.** If you run Claude in two projects at the same time, both Stop hooks try to stage, commit, rebase, and push against the same `.git` index — you'll see interleaved commits, half-applied rebases, and dedupe state (`review` mode's `.review-shown`) stomped between sessions.
+> 1. **Concurrent sessions race on the same working tree.** If you run Claude in two projects at the same time, both Stop hooks try to stage, commit, rebase, and push against the same `.git` index — you'll see interleaved commits and half-applied rebases.
 > 2. **Project context bleeds across sessions.** Memories Claude writes while working on project A would be auto-pushed under project B's session if B happens to end its turn first.
 >
 > Per-project installs keep one independent clone per repo while still sharing the same remote, so the team-wide KB stays unified without the local race conditions.
@@ -202,14 +196,11 @@ During `mcs sync`, you'll be prompted for:
 shared-memories/
 ├── techpack.yaml                    # Manifest — defines all components
 ├── commands/
-│   └── approve-memories.md          # Slash command for review-mode approval
-├── config/
-│   └── settings.json                # Templated env block — ships MEMORIES_AUTOPUSH_MODE
+│   └── resolve-memories.md          # Slash command for conflicts and stuck pushes
 ├── runtime/                         # Installed to .claude/hooks/shared-memories/
 │   ├── pull.mts                     # SessionStart: pull + stuck-state warning
 │   ├── autopush.mts                 # Stop: auto-commit + push (async)
-│   ├── announce.mts                 # PostToolUse: review-mode nudge to Claude (sync)
-│   └── lib/                         # git, paths, naming, mode, pending, report, push
+│   └── lib/                         # git, paths, naming, pending, commit-message, push
 ├── scripts/                         # Run in place from the pack checkout
 │   ├── configure-memories.ts        # Sparse clone + symlink + migration
 │   ├── doctor-memories.ts           # Setup health check
@@ -230,7 +221,6 @@ On engineer disks, the pack materializes as:
 ├── hooks/shared-memories/           # run by mcs via each hook's declared hookInterpreter
 │   ├── pull.mts
 │   ├── autopush.mts
-│   ├── announce.mts
 │   └── lib/                         # imported as ./lib/… by the entries beside it
 ├── .memories-repo/                  # sparse clone of MEMORIES_BRANCH
 │   ├── README.md, LICENSE, etc.     # any root-level files your repo ships
@@ -315,60 +305,33 @@ Free-push doesn't mean unprotected. Apply a repo-level ruleset to your side bran
 | `non_fast_forward` | `git push --force` | Prevents history rewrite that could erase content between reflog expiries |
 | `deletion` | `git push origin :<branch>` | Prevents catastrophic branch wipeout |
 
-Normal commits (including ones that delete files via `memory-audit`) are unaffected, so the audit + manual-push flow still works.
+Normal commits (including ones that delete files via `memory-audit`) are unaffected.
 
 ---
 
-## 🚦 Auto-Push Modes
+## 🧯 Conflicts and Stuck Pushes
 
-The Stop hook's behavior is set during `mcs sync` via the `MEMORIES_AUTOPUSH_MODE` prompt. The chosen value is written to `.claude/settings.local.json`'s `env` block (per-user / project-local). To change modes later, re-run `mcs sync` and pick a different value, or edit `.claude/settings.local.json` directly.
+Every change under `memories/` — additions, edits and deletions — is pushed at the end of the turn that made it. A memory removed by mistake comes back from history:
 
-| Mode | Adds / Modifications | Deletions | When to use |
-|------|----------------------|-----------|-------------|
-| `auto` *(default)* | auto-pushed | parked for manual review | Safe default for most teams. The asymmetric trust matches how memories are typically created vs. removed. |
-| `full` | auto-pushed | auto-pushed | You trust your workflow — `memory-audit` runs are deliberate, no fat-finger risk. Skips the Intentional Deletion Workflow below. |
-| `review` | not pushed | not pushed | You want to inspect every change before it propagates to the team. The hook prints a per-file report each turn end. |
-
-Unset, empty, and unrecognized values fall through to `auto` (with a one-line warning for unrecognized values), so existing installs see zero behavior change.
-
-In `review` mode, the hook prints a report on each turn end:
-
-```
-Shared memories [review mode]: <N> pending file(s) in memories/ and <M> unpushed commit(s)
-+ NEW  <file:///…/memories/learning_foo.md>
-       "<first non-empty line preview>"
-~ MOD  <file:///…/memories/decision_bar.md>  (+3 -1)
-       Diff: git -C .claude/.memories-repo diff -- memories/decision_bar.md
-- DEL  memories/learning_old.md  (last modified 3 weeks ago)
-       Recover: git -C .claude/.memories-repo checkout HEAD -- memories/learning_old.md
-
-Approve all:           /approve-memories  [optional commit reason]
-Discard local changes: …
+```bash
+git -C .claude/.memories-repo log --diff-filter=D --oneline -- memories/<file>   # find the commit that removed it
+git -C .claude/.memories-repo checkout <sha>^ -- memories/<file>                 # restore it; the next Stop pushes it
 ```
 
-`/approve-memories` (shipped by this pack) stages everything under `memories/`, commits as `review: <reason>` (default: `approved memories from <host> <date>`), pulls `--rebase --autostash`, and pushes. It re-runs the Stop-hook filename guardrail, so a stray `wip.md` blocks the push. Both you and Claude invoke the same command — no copy-paste of multi-line git incantations. Also unblocks `auto` / `full` state stuck from a previous push failure.
+The Stop hook retries on every turn, so a network blip or a teammate pushing first sorts itself out. A few things never clear up by retrying. SessionStart and the Stop hook name them when they happen, and `/resolve-memories` handles the ones Claude can fix:
 
-The same pending set is reported once per session — repeated turns within the session stay silent so the report doesn't spam every prompt. SessionStart resets the dedupe so unresolved changes re-surface in the next session instead of being buried forever.
-
-In `review` mode, Claude is also told about each memory write through a separate PostToolUse hook (`announce.mts`), so it can proactively mention pending review in the same turn and invoke `/approve-memories` when you confirm — without needing to wait for the terminal report. The terminal report and the in-conversation nudge are independent channels: the report goes to your terminal, the nudge goes to Claude's context. `auto` and `full` modes keep both channels silent.
-
-Pull is always automatic regardless of mode — incoming team memories arrive at session start.
-
----
-
-## 🧹 Intentional Deletion Workflow
-
-When you legitimately want to remove stale memories (typically after running the `memory-audit` skill from `mcs-cli/memory`), invoke the slash command:
+| Blocker | What `/resolve-memories` does |
+|---------|-------------------------------|
+| **Rebase conflict** — you and a teammate edited the same memory | Merges both versions so neither side's facts are lost, and shows you the result. Asks you when one side deleted the file and the other edited it |
+| **Unconventional filename** — the guardrail halts every push | Proposes a `learning_…` / `decision_…` name and renames the file. Asks you when the type is unclear |
+| **Rebase left in progress** — the hooks pause rather than commit conflict markers | Finishes it, or aborts it if the conflict is outside `memories/` |
+| **No upstream** — commits stay local without a word | Sets the upstream to `origin/<branch>` |
+| **Auth** (SSH key not loaded, expired token) | Diagnoses only: run `ssh-add`, refresh credentials, check with `mcs doctor` |
+| **No git identity** — the commit itself fails | Diagnoses only: set `git config --global user.name` / `user.email` |
 
 ```
-/approve-memories audit cleanup
+/resolve-memories [optional reason]
 ```
-
-That stages the deletions, commits as `review: audit cleanup`, pulls `--rebase`, and pushes — same recipe the slash command uses for any other approval, with the filename guardrail re-applied.
-
-The deletion block in `auto` mode is deliberate friction: audit is rare enough (monthly-ish) that requiring explicit human confirmation is cheap insurance against catastrophic local-delete-then-auto-push accidents. The slash command is that confirmation step in one keystroke.
-
-If your workflow makes the friction unnecessary, set `MEMORIES_AUTOPUSH_MODE=full` to skip the manual step entirely — `memory-audit`'s deletions will then auto-push alongside any other writes.
 
 ---
 
@@ -387,11 +350,9 @@ git -C .claude/.memories-repo status -- memories/              # dirty files
 git -C .claude/.memories-repo ls-files --others --exclude-standard -- memories/   # untracked
 ```
 
-Anything not matching `memories/(learning|decision)_*.md` needs renaming.
+Anything not matching `memories/(learning|decision)_*.md` needs renaming — or run `/resolve-memories`.
 
-**If SessionStart warns about lingering state**:
-- In `auto` / `full` mode the previous push hit an auth/network issue (fix and wait for the next Stop, or run `/approve-memories` to retry immediately), or guardrail-rejected files are sitting dirty (rename them). `mcs doctor` will tell you which.
-- In `review` mode the warning is expected — it lists pending changes awaiting your decision. End a turn to see the per-file report, then `/approve-memories` to push.
+**If SessionStart warns about lingering state**, the previous push hit one of the [blockers](#-conflicts-and-stuck-pushes). A network or auth issue clears on the next Stop once it's fixed (`mcs doctor` checks remote access); a rebase conflict or a misnamed file needs `/resolve-memories`.
 
 ---
 
@@ -408,7 +369,9 @@ TypeScript run directly by Node: no build step, no runtime dependencies, no lock
 
 Fixtures carry an `expect` pattern asserted against the recording, so a fixture where nothing happens fails rather than passing vacuously. Machine- and day-dependent values — temp paths, hostname, dates, git's relative timestamps — are normalised; everything else is byte-exact.
 
-CI runs on macOS across Node 22 and 24. Besides the typecheck and the suite it guards three things: the pack contains no shell at all, `hostname -s` still matches `os.hostname().split(".")[0]` (the commit subjects depend on it), and the suite leaves the working tree clean.
+CI runs on macOS across Node 22 and 24. Besides the typecheck and the suite it guards two things: the pack contains no shell at all, and the suite leaves the working tree clean.
+
+To re-record after an intended behaviour change, run `UPDATE_GOLDENS=1 npm test` and review the diff of `tests/golden/` line by line: a recording is only as right as the behaviour it captured.
 
 ---
 

@@ -1,5 +1,6 @@
 import { git } from "./git.mts";
-import { say } from "./hook-io.mts";
+import { detail, say } from "./hook-io.mts";
+import { RESOLVE_COMMAND } from "./naming.mts";
 
 export function pushAttempts(raw: string | undefined): number {
 	if (raw === undefined || raw === "") return 12;
@@ -20,11 +21,6 @@ function sleep(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** `printf '  %s\n' "$err"` indents the first line only. */
-function detail(err: string): void {
-	if (err !== "") process.stdout.write(`  ${err}\n`);
-}
-
 export function syncToRemote(repo: string, attemptsRaw: string | undefined): void {
 	const attempts = pushAttempts(attemptsRaw);
 	for (let attempt = 1; ; attempt++) {
@@ -36,11 +32,11 @@ export function syncToRemote(repo: string, attemptsRaw: string | undefined): voi
 				const abort = git(repo, ["rebase", "--abort"]);
 				if (!abort.ok) {
 					say(
-						"Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Resolve manually in .claude/.memories-repo/memories.",
+						`Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Run ${RESOLVE_COMMAND} to finish it.`,
 					);
 					detail(abort.stderr.replace(/\n$/, ""));
 				} else {
-					say("Shared memories: auto-push paused — rebase conflict. Resolve manually in .claude/.memories-repo/memories.");
+					say(`Shared memories: auto-push paused — rebase conflict. Run ${RESOLVE_COMMAND} to merge it.`);
 				}
 			} else {
 				say("Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.");

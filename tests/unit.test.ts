@@ -1,29 +1,13 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripJsonComments } from "./harness.ts";
 import { isJsonStream } from "../runtime/lib/hook-io.mts";
-import { resolveMode } from "../runtime/lib/mode.mts";
-import { ALLOWED_PATTERN, MEMORY_WRITE_PATTERN } from "../runtime/lib/naming.mts";
+import { ALLOWED_PATTERN } from "../runtime/lib/naming.mts";
+import { commitMessage, parseNameStatus, type Change } from "../runtime/lib/commit-message.mts";
 import { jitterMs, pushAttempts } from "../runtime/lib/push.mts";
-import { canonicalState, describe as describePending, hashState, lastShownHash, urlEncodePath } from "../runtime/lib/report.mts";
-import type { Pending } from "../runtime/lib/pending.mts";
-
-describe("mode resolution", () => {
-	for (const [raw, mode] of [[undefined, "auto"], ["", "auto"], ["auto", "auto"], ["full", "full"], ["review", "review"]] as const) {
-		test(`${JSON.stringify(raw)} resolves to ${mode}`, () => {
-			const r = resolveMode(raw);
-			assert.equal(r.mode, mode);
-			assert.equal(r.unrecognised, null);
-		});
-	}
-	test("an unrecognised value falls back to auto and is reported", () => {
-		assert.deepEqual(resolveMode("banana"), { mode: "auto", unrecognised: "banana" });
-	});
-});
 
 describe("the naming guardrail", () => {
 	const ok = ["memories/learning_a_b.md", "memories/decision_x-y_z.md", "memories/learning_A1_b2.md"];
@@ -37,12 +21,6 @@ describe("the naming guardrail", () => {
 	];
 	for (const f of ok) test(`accepts ${f}`, () => assert.ok(ALLOWED_PATTERN.test(f)));
 	for (const f of bad) test(`rejects ${f}`, () => assert.ok(!ALLOWED_PATTERN.test(f)));
-
-	test("the write pattern anchors on .claude/memories at any depth", () => {
-		assert.ok(MEMORY_WRITE_PATTERN.test("/a/b/.claude/memories/learning_a_b.md"));
-		assert.ok(MEMORY_WRITE_PATTERN.test(".claude/memories/decision_a_b.md"));
-		assert.ok(!MEMORY_WRITE_PATTERN.test("/a/notes/learning_a_b.md"));
-	});
 });
 
 describe("the retry budget", () => {
@@ -58,55 +36,44 @@ describe("the retry budget", () => {
 	});
 });
 
-describe("file:// encoding", () => {
-	test("encodes only what breaks terminal autolinking", () => {
-		assert.equal(urlEncodePath("/a b/c#d?e"), "/a%20b/c%23d%3Fe");
-	});
-	test("leaves other reserved characters alone", () => {
-		assert.equal(urlEncodePath("/a(b)/c&d'e"), "/a(b)/c&d'e");
-	});
-});
+describe("commit messages", () => {
+	const add = (p: string): Change => ({ kind: "add", path: `memories/${p}.md` });
+	const upd = (p: string): Change => ({ kind: "update", path: `memories/${p}.md` });
+	const rm = (p: string): Change => ({ kind: "remove", path: `memories/${p}.md` });
 
-const pending = (over: Partial<Pending> = {}): Pending => ({
-	uncommitted: 0,
-	unpushed: 0,
-	untracked: [],
-	numstats: [],
-	deleted: [],
-	...over,
-});
+	test("a single change names the memory, without path or extension", () => {
+		assert.equal(commitMessage("Ana", [add("learning_a_b")]), "Ana: add learning_a_b");
+		assert.equal(commitMessage("Ana", [upd("learning_a_b")]), "Ana: update learning_a_b");
+		assert.equal(commitMessage("Ana", [rm("learning_a_b")]), "Ana: remove learning_a_b");
+	});
 
-describe("review state", () => {
-	test("is stable regardless of the order files are discovered in", () => {
-		const a = canonicalState(pending({ untracked: ["memories/b.md", "memories/a.md"] }), "");
-		const b = canonicalState(pending({ untracked: ["memories/a.md", "memories/b.md"] }), "");
-		assert.equal(hashState(a), hashState(b));
+	test("a single rename shows both names", () => {
+		const c: Change = { kind: "rename", from: "memories/learning_old.md", path: "memories/learning_new.md" };
+		assert.equal(commitMessage("Ana", [c]), "Ana: rename learning_old → learning_new");
 	});
-	test("distinguishes a new file from a modified one", () => {
-		const a = canonicalState(pending({ untracked: ["memories/a.md"] }), "");
-		const b = canonicalState(pending({ numstats: [{ added: "1", deleted: "0", path: "memories/a.md" }] }), "");
-		assert.notEqual(hashState(a), hashState(b));
-	});
-	test("ignores content, so re-editing the same file does not reprint", () => {
-		assert.equal(
-			canonicalState(pending({ untracked: ["memories/a.md"] }), ""),
-			canonicalState(pending({ untracked: ["memories/a.md"] }), ""),
-		);
-	});
-	test("an unpushed commit contributes only when HEAD resolves", () => {
-		assert.equal(canonicalState(pending({ unpushed: 2 }), ""), "");
-		assert.match(canonicalState(pending({ unpushed: 2 }), "abc123"), /^UNPUSHED\tabc123\t2$/);
-	});
-	test("the digest is sha256, matching `shasum -a 256`", () => {
-		assert.equal(hashState(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-	});
-});
 
-describe("the pending description", () => {
-	test("names files and commits separately", () => {
-		assert.equal(describePending(2, 3), "2 pending file(s) in memories/ and 3 unpushed commit(s)");
-		assert.equal(describePending(2, 0), "2 pending file(s) in memories/");
-		assert.equal(describePending(0, 3), "3 unpushed commit(s)");
+	test("several changes count by kind, leave out empty kinds, and list each file in the body", () => {
+		const msg = commitMessage("Ana", [rm("learning_z"), add("learning_b"), upd("decision_c"), add("decision_a")]);
+		assert.equal(msg, "Ana: 2 added, 1 updated, 1 removed\n\n+ decision_a\n+ learning_b\n~ decision_c\n- learning_z");
+	});
+
+	test("nothing staged still yields a usable subject", () => {
+		assert.equal(commitMessage("Ana", []), "Ana: update memories");
+	});
+
+	test("git's name-status lines map onto change kinds", () => {
+		assert.deepEqual(parseNameStatus("A\tmemories/learning_a.md"), { kind: "add", path: "memories/learning_a.md" });
+		assert.deepEqual(parseNameStatus("M\tmemories/learning_a.md"), { kind: "update", path: "memories/learning_a.md" });
+		assert.deepEqual(parseNameStatus("T\tmemories/learning_a.md"), { kind: "update", path: "memories/learning_a.md" });
+		assert.deepEqual(parseNameStatus("D\tmemories/learning_a.md"), { kind: "remove", path: "memories/learning_a.md" });
+		assert.deepEqual(parseNameStatus("R097\tmemories/learning_a.md\tmemories/learning_b.md"), {
+			kind: "rename",
+			from: "memories/learning_a.md",
+			path: "memories/learning_b.md",
+		});
+		assert.deepEqual(parseNameStatus("C100\tmemories/learning_a.md\tmemories/learning_b.md"), { kind: "add", path: "memories/learning_b.md" });
+		assert.equal(parseNameStatus("U\tmemories/learning_a.md"), null);
+		assert.equal(parseNameStatus(""), null);
 	});
 });
 
@@ -117,29 +84,6 @@ describe("the jq stdin gate", () => {
 	for (const s of ["not json", "{", "}", "[1,", '{"a":1} x', '"unterminated']) {
 		test(`rejects ${JSON.stringify(s)}`, () => assert.ok(!isJsonStream(s)));
 	}
-});
-
-describe("the review dedupe state fails open", () => {
-	test("an unreadable state file means no dedupe rather than a lost report", () => {
-		const dir = mkdtempSync(join(tmpdir(), "sm-dedupe-"));
-		try {
-			// A directory where the file belongs: readFileSync throws EISDIR, which used
-			// to escape into failOpen and swallow the entire review report. The bash read
-			// it as `tr ... 2>/dev/null || true` and simply printed.
-			const asDir = join(dir, "state-is-a-directory");
-			mkdirSync(asDir);
-			assert.equal(lastShownHash(asDir), "");
-
-			// The racy case: a concurrent Stop hook removed it after the existsSync.
-			assert.equal(lastShownHash(join(dir, "never-existed")), "");
-
-			// And it still reads a real one, `tr -d '[:space:]'` and all.
-			writeFileSync(join(dir, "shown"), "  deadbeef\n");
-			assert.equal(lastShownHash(join(dir, "shown")), "deadbeef");
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
 });
 
 describe("reading tsconfig.json as the JSONC it is by convention", () => {
