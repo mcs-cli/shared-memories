@@ -2,7 +2,7 @@
 import { additionalContext, failOpen, isJsonStream, readStdin, warn } from "./lib/hook-io.mts";
 import { aheadOfUpstream, git, gitPresent, hasUpstream, isWorkTree, operationInProgress } from "./lib/git.mts";
 import { RESOLVE_COMMAND } from "./lib/naming.mts";
-import { uncommittedCount } from "./lib/pending.mts";
+import { lingeringCount } from "./lib/pending.mts";
 import { memoriesRepo, projectRoot } from "./lib/paths.mts";
 
 const NAME = "memories_pull";
@@ -35,9 +35,10 @@ failOpen(NAME, () => {
 		return;
 	}
 
-	git(repo, ["pull", "--ff-only", "--quiet"]);
+	// Usage rows written after the last Stop would otherwise block every incoming change to that file.
+	git(repo, ["pull", "--ff-only", "--autostash", "--quiet"]);
 
-	const uncommitted = uncommittedCount(repo);
+	const uncommitted = lingeringCount(repo);
 	const unpushed = aheadOfUpstream(repo);
 	if (uncommitted === 0 && unpushed === 0) return;
 

@@ -1,0 +1,6 @@
+{
+  "stdout": "",
+  "stderr": "",
+  "code": 0,
+  "git": "status-all: \nlog-all: Fixture: update memory usage | from the other clone | seed usage | seed\ntracked-all: memories/.usage.tsv | memories/learning_seed_topic.md\nstatus: \nlog: Fixture: update memory usage | from the other clone | seed usage | seed\nhead-body: \nupstream: origin/main\nunpushed: 0\ntracked: memories/.usage.tsv | memories/learning_seed_topic.md\nworktree: .usage.tsv learning_seed_topic.md\nremote-log: Fixture: update memory usage | from the other clone | seed usage | seed\nremote-files: memories/.usage.tsv | memories/learning_seed_topic.md"
+}

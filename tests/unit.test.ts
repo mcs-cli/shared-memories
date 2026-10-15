@@ -1,11 +1,12 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stripJsonComments } from "./harness.ts";
+import { makeProject, memory, stripJsonComments } from "./harness.ts";
 import { isJsonStream } from "../runtime/lib/hook-io.mts";
-import { ALLOWED_PATTERN } from "../runtime/lib/naming.mts";
+import { ALLOWED_PATTERN, USAGE_FILE } from "../runtime/lib/naming.mts";
+import { badNames } from "../runtime/lib/pending.mts";
 import { commitMessage, parseNameStatus, type Change } from "../runtime/lib/commit-message.mts";
 import { jitterMs, pushAttempts } from "../runtime/lib/push.mts";
 
@@ -21,6 +22,24 @@ describe("the naming guardrail", () => {
 	];
 	for (const f of ok) test(`accepts ${f}`, () => assert.ok(ALLOWED_PATTERN.test(f)));
 	for (const f of bad) test(`rejects ${f}`, () => assert.ok(!ALLOWED_PATTERN.test(f)));
+});
+
+describe("the usage file is exempt from the naming guardrail, and nothing else is", () => {
+	test("badNames passes the usage file and still flags its look-alikes", () => {
+		const { root, repo } = makeProject();
+		try {
+			writeFileSync(join(repo, USAGE_FILE), "# since: 2026-10-01\n");
+			memory(repo, "usage.tsv");
+			memory(repo, ".usage.tsv.bak");
+			mkdirSync(join(repo, "memories", "sub"));
+			writeFileSync(join(repo, "memories", "sub", ".usage.tsv"), "");
+			assert.deepEqual(badNames(repo), ["memories/.usage.tsv.bak", "memories/sub/.usage.tsv", "memories/usage.tsv"]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("the naming pattern itself still rejects it", () => assert.ok(!ALLOWED_PATTERN.test(USAGE_FILE)));
 });
 
 describe("the retry budget", () => {
@@ -55,6 +74,17 @@ describe("commit messages", () => {
 	test("several changes count by kind, leave out empty kinds, and list each file in the body", () => {
 		const msg = commitMessage("Ana", [rm("learning_z"), add("learning_b"), upd("decision_c"), add("decision_a")]);
 		assert.equal(msg, "Ana: 2 added, 1 updated, 1 removed\n\n+ decision_a\n+ learning_b\n~ decision_c\n- learning_z");
+	});
+
+	test("a usage-only change says so instead of naming a memory", () => {
+		assert.equal(commitMessage("Ana", [{ kind: "update", path: USAGE_FILE }]), "Ana: update memory usage");
+		assert.equal(commitMessage("Ana", [{ kind: "add", path: USAGE_FILE }]), "Ana: update memory usage");
+	});
+
+	test("the usage file is left out of a message that has memory changes", () => {
+		const usage: Change = { kind: "update", path: USAGE_FILE };
+		assert.equal(commitMessage("Ana", [usage, add("learning_a_b")]), "Ana: add learning_a_b");
+		assert.equal(commitMessage("Ana", [add("learning_b"), usage, upd("decision_c")]), "Ana: 1 added, 1 updated\n\n+ learning_b\n~ decision_c");
 	});
 
 	test("nothing staged still yields a usable subject", () => {

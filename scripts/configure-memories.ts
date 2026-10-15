@@ -1,8 +1,21 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
-import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-import { authorName, git, gitLines, gitOut, gitPresent, isWorkTree } from "../runtime/lib/git.mts";
-import { ALLOWED_PATTERN, RESOLVE_COMMAND } from "../runtime/lib/naming.mts";
+import {
+	appendFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	rmdirSync,
+	statSync,
+	symlinkSync,
+	unlinkSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { authorName, git, gitLines, gitOut, gitPresent, hasUnionRule, isWorkTree } from "../runtime/lib/git.mts";
+import { ALLOWED_PATTERN, isAllowedPath, RESOLVE_COMMAND, USAGE_ATTRIBUTE, USAGE_FILE } from "../runtime/lib/naming.mts";
 import { changeLine } from "../runtime/lib/commit-message.mts";
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
@@ -77,6 +90,29 @@ function restoreBackup(): void {
 	}
 }
 
+const readText = (p: string): string => {
+	try {
+		return readFileSync(p, "utf8");
+	} catch {
+		return "";
+	}
+};
+
+const appendLine = (p: string, text: string): void => {
+	const current = readText(p);
+	appendFileSync(p, `${current === "" || current.endsWith("\n") ? "" : "\n"}${text}`);
+};
+
+// Per clone, in info/attributes, so the team's repo never carries a file the pack owns.
+function ensureUnionAttribute(checkout: string): void {
+	if (hasUnionRule(checkout)) return;
+	const path = gitOut(checkout, ["rev-parse", "--path-format=absolute", "--git-path", "info/attributes"]);
+	if (path === "") return;
+	mkdirSync(dirname(path), { recursive: true });
+	appendLine(path, `${USAGE_ATTRIBUTE}\n`);
+	out(`Added the merge=union rule for ${USAGE_FILE} to ${path}.`);
+}
+
 function stamp(): string {
 	const d = new Date();
 	const p = (n: number) => String(n).padStart(2, "0");
@@ -99,6 +135,7 @@ function main(): void {
 
 	// Case 1: healthy.
 	if (isSymlink(link) && isWorkTree(link)) {
+		ensureUnionAttribute(link);
 		out("Shared memories already linked — leaving as-is.");
 		process.exit(0);
 	}
@@ -174,6 +211,7 @@ function main(): void {
 		mkdirSync(join(repoDir, "memories"), { recursive: true });
 		linkMemories();
 	}
+	ensureUnionAttribute(repoDir);
 
 	let imported = 0;
 	let skipped = 0;
@@ -196,7 +234,11 @@ function main(): void {
 			}
 			if (!entry.isFile()) continue;
 			const target = join(link, name);
-			if (exists(target)) {
+			// Reads from before the switch stay meaningful: readers take the latest date per memory.
+			if (`memories/${name}` === USAGE_FILE) {
+				appendLine(target, readFileSync(from, "utf8"));
+				unlinkSync(from);
+			} else if (exists(target)) {
 				skipped++;
 			} else if (deletedHistory.has(`memories/${name}`)) {
 				resurrected.push(name);
@@ -237,10 +279,11 @@ function main(): void {
 	if (imported > 0) {
 		const untracked = gitLines(repoDir, ["ls-files", "--others", "--exclude-standard", "--full-name", "--", "memories/"]);
 		const good = untracked.filter((f) => ALLOWED_PATTERN.test(f));
-		const bad = untracked.filter((f) => !ALLOWED_PATTERN.test(f));
+		const bad = untracked.filter((f) => !isAllowedPath(f));
 
 		if (good.length > 0) {
-			for (const f of good) {
+			// Unchanged, it stages nothing; merged, it travels with the memories it describes.
+			for (const f of exists(join(link, ".usage.tsv")) ? [...good, USAGE_FILE] : good) {
 				const add = git(repoDir, ["add", "--", f], { inheritStderr: true });
 				if (!add.ok) process.exit(add.exit ?? 1);
 			}

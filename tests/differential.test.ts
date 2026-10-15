@@ -1,8 +1,10 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { git, memory, readGolden, rejectAllPushes, runHook, writeGolden, type Fixture, type RunResult } from "./harness.ts";
+import { commit, dropUnionRule, git, memory, readGolden, rejectAllPushes, runHook, writeGolden, type Fixture, type RunResult } from "./harness.ts";
 
 /**
  * Behaviour is pinned to tests/golden/. The goldens were first recorded from the
@@ -105,11 +107,6 @@ describe("pull — behaviour is pinned", () => {
 	for (const fx of pull) test(fx.name, () => assertParity(fx));
 });
 
-const commit = (repo: string, msg: string) => {
-	git(repo, "add", "-A");
-	git(repo, "commit", "-qm", msg);
-};
-
 const autopush: readonly Fixture[] = [
 	{ name: "autopush: nothing pending", hook: "autopush" },
 	{
@@ -198,13 +195,13 @@ describe("autopush — behaviour is pinned", () => {
 });
 
 /** A second clone that pushes first, so our push is rejected as non-fast-forward. */
-const otherClonePushes = (repo: string, project: string, file: string, body: string) => {
+const otherClonePushes = (repo: string, project: string, file: string, body: string, more: Readonly<Record<string, string>> = {}) => {
 	const work = dirname(project);
 	const other = join(work, "other");
 	git(work, "clone", "-q", join(work, "remote.git"), other);
 	git(other, "config", "user.email", "o@example.com");
 	git(other, "config", "user.name", "Other");
-	writeFileSync(join(other, "memories", file), body);
+	for (const [f, b] of Object.entries({ [file]: body, ...more })) writeFileSync(join(other, "memories", f), b);
 	git(other, "add", "-A");
 	git(other, "commit", "-qm", "from the other clone");
 	git(other, "push", "-q");
@@ -488,6 +485,161 @@ const edges: readonly Fixture[] = [
 
 describe("audited edges — behaviour is pinned", () => {
 	for (const fx of edges) test(fx.name, () => assertParity(fx));
+});
+
+const USAGE_SEED = "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-01\nlearning_seed_topic.md\t2026-10-02\n";
+
+const usageFile = (repo: string): string => join(repo, "memories", ".usage.tsv");
+
+/** Committed and pushed before anyone diverges, so both sides share it as the base. */
+const seedUsage = (repo: string): void => {
+	writeFileSync(usageFile(repo), USAGE_SEED);
+	commit(repo, "seed usage");
+	git(repo, "push", "-q");
+};
+
+/** A teammate pushes `theirs` as the usage file, then we leave `ours` dirty for the Stop hook. */
+const divergingUsage =
+	(theirs: string, ours: string, unionRule: boolean) =>
+	(repo: string, project: string): void => {
+		seedUsage(repo);
+		otherClonePushes(repo, project, ".usage.tsv", theirs);
+		writeFileSync(usageFile(repo), ours);
+		if (!unionRule) dropUnionRule(repo);
+	};
+
+/** Union semantics: every row either side wrote survives, and no marker leaks into the file. */
+const keepsEveryLine =
+	(...sides: string[]) =>
+	(repo: string): void => {
+		const merged = readFileSync(usageFile(repo), "utf8").split("\n");
+		for (const line of sides.flatMap((t) => t.split("\n")).filter(Boolean)) {
+			assert.ok(merged.includes(line), `merged usage file lost ${JSON.stringify(line)}`);
+		}
+		assert.ok(!merged.some((l) => /^(<{7}|\|{7}|={7}|>{7})/.test(l)), "conflict markers leaked into the usage file");
+		assert.equal(git(repo, "rev-list", "@{u}..HEAD", "--count"), "0", "the merge was pushed");
+	};
+
+const APPENDED_THEIRS = `${USAGE_SEED}learning_theirs_one.md\t2026-10-03\n`;
+const APPENDED_OURS = `${USAGE_SEED}learning_ours_one.md\t2026-10-04\n`;
+const COMPACTED_THEIRS = "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-02\nlearning_theirs_one.md\t2026-10-03\n";
+const EDITED_THEIRS = "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-05\nlearning_seed_topic.md\t2026-10-02\n";
+const EDITED_OURS = "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-06\nlearning_seed_topic.md\t2026-10-02\n";
+
+/** Each scenario runs twice: merged by the union rule, and by the Stop hook's fallback without it. */
+const USAGE_SCENARIOS = [
+	{ clean: "appends on both sides merge", fallback: "appends on both sides are merged", theirs: APPENDED_THEIRS, ours: APPENDED_OURS },
+	{ clean: "a compaction against an append merges", fallback: "a compaction against an append is merged", theirs: COMPACTED_THEIRS, ours: APPENDED_OURS },
+	{ clean: "in-place edits on both sides merge", fallback: "in-place edits on both sides are merged", theirs: EDITED_THEIRS, ours: EDITED_OURS },
+] as const;
+
+// The seed rows a compaction rewrote are the one thing a union need not keep.
+const newRows = (ours: string): string => (ours.startsWith(USAGE_SEED) ? ours.slice(USAGE_SEED.length) : ours);
+
+const usage: readonly Fixture[] = [
+	...USAGE_SCENARIOS.flatMap(({ clean, fallback, theirs, ours }): Fixture[] => [
+		{
+			name: `usage: ${clean} cleanly under the union rule`,
+			expect: /^$/,
+			hook: "autopush",
+			setup: divergingUsage(theirs, ours, true),
+			inspect: keepsEveryLine(theirs, newRows(ours)),
+		},
+		{
+			name: `usage: ${fallback} by the fallback without the union rule`,
+			expect: /^$/,
+			hook: "autopush",
+			setup: divergingUsage(theirs, ours, false),
+			inspect: keepsEveryLine(theirs, newRows(ours)),
+		},
+	]),
+	{
+		name: "usage: a dirty usage file alone is committed as usage, not as a memory edit",
+		expect: /^$/,
+		hook: "autopush",
+		setup: (repo) => writeFileSync(usageFile(repo), "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-01\n"),
+	},
+	{
+		name: "usage: a usage file changed with a memory leaves the subject to the memory",
+		expect: /^$/,
+		hook: "autopush",
+		setup: (repo) => {
+			writeFileSync(usageFile(repo), "# since: 2026-10-01\nlearning_seed_topic.md\t2026-10-01\n");
+			memory(repo, "learning_new_thing.md", "A brand new lesson.\n");
+		},
+	},
+	{
+		name: "usage: a dirty usage file beside a badly named one blocks on the bad name only",
+		expect: /unconventional filename\(s\):\n {2}- memories\/scratch\.md\nRename/,
+		hook: "autopush",
+		setup: (repo) => {
+			writeFileSync(usageFile(repo), "# since: 2026-10-01\n");
+			memory(repo, "scratch.md");
+		},
+	},
+	{
+		// Base rows survive too; they are older dates, which readers already outrank.
+		name: "usage: a diff3-style conflict loses its base marker and keeps its base rows",
+		expect: /^$/,
+		hook: "autopush",
+		setup: (repo, project) => {
+			divergingUsage(EDITED_THEIRS, EDITED_OURS, false)(repo, project);
+			git(repo, "config", "merge.conflictStyle", "diff3");
+		},
+		inspect: keepsEveryLine(USAGE_SEED, EDITED_THEIRS, EDITED_OURS),
+	},
+	{
+		name: "usage: a dirty usage file alone is not lingering state at SessionStart",
+		expect: /^$/,
+		hook: "pull",
+		setup: (repo) => writeFileSync(usageFile(repo), `${USAGE_SEED}learning_seed_topic.md\t2026-10-03\n`),
+	},
+	{
+		name: "usage: SessionStart fast-forwards a teammate's usage rows over our dirty ones",
+		expect: /^$/,
+		hook: "pull",
+		setup: divergingUsage(APPENDED_THEIRS, APPENDED_OURS, true),
+		inspect: (repo) => {
+			assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "origin/main"), "the teammate's commit was pulled");
+			const merged = readFileSync(usageFile(repo), "utf8").split("\n");
+			for (const row of ["learning_theirs_one.md\t2026-10-03", "learning_ours_one.md\t2026-10-04"]) {
+				assert.ok(merged.includes(row), `lost ${JSON.stringify(row)}`);
+			}
+			assert.equal(git(repo, "stash", "list"), "", "nothing stranded in the stash");
+		},
+	},
+	{
+		name: "usage: a memory conflicting beside the usage file still pauses",
+		expect: /^Shared memories: auto-push paused — rebase conflict\. Run \/resolve-memories to merge it\.$/m,
+		hook: "autopush",
+		setup: (repo, project) => {
+			seedUsage(repo);
+			otherClonePushes(repo, project, ".usage.tsv", EDITED_THEIRS, { "learning_seed_topic.md": "Their version of the seed.\n" });
+			writeFileSync(usageFile(repo), EDITED_OURS);
+			memory(repo, "learning_seed_topic.md", "Our version of the seed.\n");
+			dropUnionRule(repo);
+		},
+	},
+];
+
+describe("the usage file — behaviour is pinned", () => {
+	for (const fx of usage) test(fx.name, () => assertParity(fx));
+
+	// Without this the fallback fixtures would pass just as well if git never conflicted.
+	test("every scenario the fallback covers really conflicts without the union rule", () => {
+		const dir = mkdtempSync(join(tmpdir(), "sm-usage-"));
+		try {
+			for (const { theirs, ours } of USAGE_SCENARIOS) {
+				writeFileSync(join(dir, "base"), USAGE_SEED);
+				writeFileSync(join(dir, "theirs"), theirs);
+				writeFileSync(join(dir, "ours"), ours);
+				const r = spawnSync("git", ["merge-file", "-p", "ours", "base", "theirs"], { cwd: dir, encoding: "utf8" });
+				assert.ok((r.status ?? 0) > 0, `no conflict between ${JSON.stringify(ours)} and ${JSON.stringify(theirs)}`);
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
 
 /**

@@ -4,6 +4,8 @@ import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { USAGE_ATTRIBUTE } from "../runtime/lib/naming.mts";
+
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 
 export type HookName = "pull" | "autopush";
@@ -80,6 +82,8 @@ export type Fixture = {
 	readonly expect?: RegExp;
 	/** The abort diagnostic is a documented stderr-only deviation; compare the rest of stderr. */
 	readonly abortsDiffer?: boolean;
+	/** Asserts on what the snapshot leaves out, such as file contents, before the temp dir goes. */
+	readonly inspect?: (repo: string, project: string) => void;
 };
 
 /**
@@ -208,6 +212,16 @@ export function rejectAllPushes(remote: string): void {
 	chmodSync(hook, 0o755);
 }
 
+export const commit = (repo: string, msg: string): void => {
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", msg);
+};
+
+export const attributesFile = (repo: string): string => join(repo, ".git", "info", "attributes");
+
+/** A clone synced before the union rule existed. */
+export const dropUnionRule = (repo: string): void => rmSync(attributesFile(repo));
+
 export const memory = (repo: string, name: string, body = "A shared lesson.\n"): string => {
 	const path = join(repo, "memories", name);
 	writeFileSync(path, body);
@@ -233,6 +247,8 @@ export function makeProject(): { root: string; work: string; project: string; re
 	git(repo, "add", "-A");
 	git(repo, "commit", "-qm", "seed");
 	git(repo, "push", "-q", "-u", "origin", "main");
+	// What configure-memories writes to every clone.
+	writeFileSync(attributesFile(repo), `${USAGE_ATTRIBUTE}\n`);
 
 	// The ancestor Node resolves module type from. "commonjs" is the hostile case.
 	writeFileSync(join(project, "package.json"), '{"name":"consumer","type":"commonjs"}\n');
@@ -297,6 +313,7 @@ export function runHook(fx: Fixture): RunResult {
 			fx.betweenRuns?.(repo, project);
 			last = invoke(project, fx.hook, fx);
 		}
+		fx.inspect?.(repo, project);
 		return normalizeRun({ ...last, git: gitState(repo) }, root);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -351,6 +368,8 @@ export type ConfigureFixture = {
 	readonly trailingSlash?: boolean;
 	/** Skipped when running as root, where the fixture's premise does not hold. */
 	readonly skipAsRoot?: boolean;
+	/** Asserts on what the listing leaves out, such as file contents, before the temp dir goes. */
+	readonly inspect?: (claude: string) => void;
 	/**
 	 * A deliberate departure from the recorded bash behaviour. The golden keeps
 	 * recording what the bash did; this states what we now do instead, and why.
@@ -404,6 +423,7 @@ export function runConfigure(fx: ConfigureFixture): RunResult {
 				...fx.env,
 			},
 		});
+		fx.inspect?.(claude);
 		const listing = `${entries(claude).join(" ")}\n${entries(join(claude, "memories")).join(" ")}`;
 		return normalizeRun(
 			{ stdout: r.stdout ?? "", stderr: r.stderr ?? "", code: r.status ?? -1, git: listing.trim() },

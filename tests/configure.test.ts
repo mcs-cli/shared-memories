@@ -1,8 +1,9 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, readGolden, runConfigure, type ConfigureFixture, type RunResult } from "./harness.ts";
+import { USAGE_ATTRIBUTE } from "../runtime/lib/naming.mts";
+import { attributesFile, commit, git, readGolden, runConfigure, writeGolden, type ConfigureFixture, type RunResult } from "./harness.ts";
 
 
 /**
@@ -11,6 +12,8 @@ import { git, readGolden, runConfigure, type ConfigureFixture, type RunResult } 
  * was removed. A drift here is a change in what the pack does, not a stale test.
  */
 function check(fx: ConfigureFixture, actual: RunResult): void {
+	// A deviation's golden is the bash recording, which re-recording would overwrite.
+	if (process.env["UPDATE_GOLDENS"] === "1" && !fx.deviation) writeGolden(fx.name, actual);
 	const golden = readGolden(fx.name);
 	assert.ok(golden, `no golden recorded for "${fx.name}"`);
 
@@ -298,4 +301,85 @@ describe("configure-memories — deliberate fixes to defects in the bash", () =>
 		assert.equal(r.code, 0, "a first install is not a failure");
 		assert.match(r.stdout, /Done\. 0 memory file\(s\) available at/);
 	});
+});
+
+const attributes = (claude: string): string => readFileSync(attributesFile(join(claude, ".memories-repo")), "utf8");
+const linkedCheckout = (project: string, claude: string): void => {
+	git(claude, "clone", "-q", join(project, "..", "remote.git"), join(claude, ".memories-repo"));
+	symlinkSync(".memories-repo/memories", join(claude, "memories"));
+};
+const seedUsage = (clone: string): void => {
+	writeFileSync(join(clone, "memories", ".usage.tsv"), "# since: 2026-10-01\nlearning_shared_seed.md\t2026-10-01\n");
+	commit(clone, "seed usage");
+	git(clone, "push", "-q");
+};
+
+const usage: readonly ConfigureFixture[] = [
+	{
+		name: "usage: an existing clone gets the union rule beside its other attributes",
+		expectCode: 0,
+		expect: /Added the merge=union rule for memories\/\.usage\.tsv/,
+		pre: (project, claude) => {
+			linkedCheckout(project, claude);
+			writeFileSync(attributesFile(join(claude, ".memories-repo")), "*.md diff");
+		},
+		inspect: (claude) => assert.equal(attributes(claude), "*.md diff\nmemories/.usage.tsv merge=union\n"),
+	},
+	{
+		name: "usage: a clone that already has the union rule is left alone",
+		expectCode: 0,
+		pre: (project, claude) => {
+			linkedCheckout(project, claude);
+			writeFileSync(attributesFile(join(claude, ".memories-repo")), `${USAGE_ATTRIBUTE}\n`);
+		},
+		inspect: (claude) => assert.equal(attributes(claude), "memories/.usage.tsv merge=union\n"),
+	},
+	{
+		name: "usage: a fresh clone gets the union rule",
+		expectCode: 0,
+		inspect: (claude) => assert.equal(attributes(claude), "memories/.usage.tsv merge=union\n"),
+	},
+	{
+		name: "usage: a local usage file is moved in when the shared repo has none",
+		expectCode: 0,
+		expect: /Pushed migrated memories/,
+		pre: (_project, claude) => {
+			local(claude, "learning_mine_own.md");
+			local(claude, ".usage.tsv", "# since: 2026-09-01\nlearning_mine_own.md\t2026-09-02\n");
+		},
+		inspect: (claude) => {
+			const repo = join(claude, ".memories-repo");
+			assert.equal(readFileSync(join(claude, "memories", ".usage.tsv"), "utf8"), "# since: 2026-09-01\nlearning_mine_own.md\t2026-09-02\n");
+			assert.match(git(repo, "show", "--name-only", "--format=", "HEAD"), /memories\/\.usage\.tsv/, "travels with the migration commit");
+			assert.equal(git(repo, "status", "--porcelain"), "", "nothing left for the next Stop");
+		},
+	},
+	{
+		name: "usage: a local usage file is appended onto the shared one",
+		expectCode: 0,
+		expect: /Pushed migrated memories/,
+		seed: seedUsage,
+		pre: (_project, claude) => {
+			local(claude, "learning_mine_own.md");
+			local(claude, ".usage.tsv", "# since: 2026-09-01\nlearning_mine_own.md\t2026-09-02");
+		},
+		inspect: (claude) => {
+			assert.equal(
+				readFileSync(join(claude, "memories", ".usage.tsv"), "utf8"),
+				"# since: 2026-10-01\nlearning_shared_seed.md\t2026-10-01\n# since: 2026-09-01\nlearning_mine_own.md\t2026-09-02",
+			);
+			assert.match(git(join(claude, ".memories-repo"), "show", "--name-only", "--format=", "HEAD"), /memories\/\.usage\.tsv/);
+		},
+	},
+	{
+		name: "usage: a local usage file alone is merged and left for the next Stop",
+		expectCode: 0,
+		seed: seedUsage,
+		pre: (_project, claude) => local(claude, ".usage.tsv", "# since: 2026-09-01\nlearning_shared_seed.md\t2026-09-02\n"),
+		inspect: (claude) => assert.equal(git(join(claude, ".memories-repo"), "status", "--porcelain"), "M memories/.usage.tsv"),
+	},
+];
+
+describe("the usage file — behaviour is pinned", () => {
+	for (const fx of usage) test(fx.name, () => assertParity(fx));
 });

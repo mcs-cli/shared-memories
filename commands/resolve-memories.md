@@ -49,6 +49,7 @@ Set it: `git -C .claude/.memories-repo branch --set-upstream-to=origin/<current 
 `git -C .claude/.memories-repo pull --rebase --autostash`. For each conflicted file (`git -C .claude/.memories-repo diff --name-only --diff-filter=U`):
 
 - **Both sides edited a memory**: write one version that keeps every fact from both sides. Drop only exact duplicates, and keep the file's existing structure. Show the user the merged result.
+- **`memories/.usage.tsv`**: keep every line from both sides, in any order, and drop only the conflict markers. Duplicates are harmless; the memory pack compacts the file later. No need to show the user.
 - **One side deleted it, the other edited it**: ask the user whether to keep the edited version or let the deletion stand.
 - **A conflict outside `memories/`**: `git -C .claude/.memories-repo rebase --abort`, tell the user, and stop.
 

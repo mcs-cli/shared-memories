@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { USAGE_FILE } from "./naming.mts";
 
 export type GitRun = {
 	readonly ok: boolean;
@@ -93,6 +94,13 @@ export function operationInProgress(dir: string): "rebase" | "merge" | null {
  */
 export function authorName(dir: string): string {
 	return /^(.*?) </.exec(gitOut(dir, ["var", "GIT_AUTHOR_IDENT"]))?.[1]?.trim() || "unknown";
+}
+
+/** Whether git merges the usage file as a union, wherever the rule is set. */
+export function hasUnionRule(dir: string): boolean {
+	// check-attr resolves paths against the cwd, and `dir` may be memories/ itself.
+	const top = gitOut(dir, ["rev-parse", "--show-toplevel"]);
+	return top !== "" && gitOut(top, ["check-attr", "merge", "--", USAGE_FILE]).endsWith(": merge: union");
 }
 
 /** Whether the binary exists, the question `command -v git` asked. */
