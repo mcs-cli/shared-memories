@@ -8,5 +8,5 @@
 .idea/
 .vscode/
 
-# Node typecheck deps (CI + local only; runtime is zero-deps)
+# Dev tooling: typecheck and lint (runtime is zero-deps)
 node_modules/

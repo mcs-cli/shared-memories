@@ -374,10 +374,12 @@ Anything not matching `memories/(learning|decision)_*.md` needs renaming — or 
 
 ```bash
 npm test                                             # unit, contract and behaviour suites
-npm run typecheck                                    # tsc --noEmit (deps install ad hoc in CI)
+npm run typecheck                                    # tsc --noEmit
+npm run lint                                         # biome ci: formatting and lint, fails on warnings
+npm run format                                       # biome check --write: apply formatting and safe fixes
 ```
 
-TypeScript run directly by Node: no build step, no runtime dependencies, no lockfile. `tsconfig.json` sets `erasableSyntaxOnly`, so the syntax stays strippable — no `enum`, no `namespace`, no constructor parameter properties.
+TypeScript run directly by Node: no build step, no runtime dependencies. The lockfile pins dev tooling only (TypeScript, Biome); nothing in it ships. `tsconfig.json` sets `erasableSyntaxOnly`, so the syntax stays strippable — no `enum`, no `namespace`, no constructor parameter properties.
 
 **`tests/golden/` is the behaviour contract.** Each file pins what the pack produces for one fixture: stdout, stderr, exit code, and the resulting repository state. The suite builds a throwaway project with a real git remote, installs the hooks, runs them through their shebang (pinned by `tests/manifest.test.ts` to the same command the manifest declares), and compares. A diff therefore means the pack's behaviour changed, not that a test went stale.
 

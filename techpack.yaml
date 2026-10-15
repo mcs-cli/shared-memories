@@ -14,7 +14,9 @@ ignore:
   - tests/
   - .github/
   - package.json
+  - package-lock.json
   - tsconfig.json
+  - biome.json
 
 prompts:
   - key: MEMORIES_REPO_URL

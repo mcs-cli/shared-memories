@@ -1,12 +1,19 @@
 {
   "private": true,
   "type": "module",
-  "description": "Hook and script sources for the shared-memories techpack. Zero runtime dependencies; run by `node --experimental-strip-types`. Typecheck deps install ad hoc in CI.",
+  "description": "Hook and script sources for the shared-memories techpack. Zero runtime dependencies; run by `node --experimental-strip-types`.",
   "engines": {
     "node": ">=22.6"
   },
   "scripts": {
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome ci --error-on-warnings",
+    "format": "biome check --write"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "22.9.0",
+    "typescript": "5.9.2"
   }
 }
