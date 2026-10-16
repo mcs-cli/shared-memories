@@ -1,6 +1,8 @@
-import { git } from "./git.mts";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { git, gitLines } from "./git.mts";
 import { detail, say } from "./hook-io.mts";
-import { RESOLVE_COMMAND } from "./naming.mts";
+import { RESOLVE_COMMAND, USAGE_FILE } from "./naming.mts";
 
 export function pushAttempts(raw: string | undefined): number {
 	if (raw === undefined || raw === "") return 12;
@@ -21,6 +23,48 @@ function sleep(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+const CONFLICT_MARKER = /^(<{7}|\|{7}|={7}|>{7})( |$)/;
+
+const unmergedPaths = (repo: string): string[] => gitLines(repo, ["diff", "--name-only", "--diff-filter=U"]);
+
+const PAUSED = `Shared memories: auto-push paused — rebase conflict. Run ${RESOLVE_COMMAND} to merge it.`;
+
+// Clones synced before the union rule existed still conflict on the usage file,
+// and that must never pause the memory pushes behind it. Returns why the rebase
+// has to be aborted, or null once it finished.
+function finishUsageOnlyRebase(repo: string): string | null {
+	let unmerged = unmergedPaths(repo);
+	if (unmerged.length === 0) return PAUSED;
+	for (; unmerged.length > 0; unmerged = unmergedPaths(repo)) {
+		if (unmerged.some((f) => f !== USAGE_FILE)) return PAUSED;
+
+		// Dropping the markers is exactly what `merge=union` writes, and it keeps rows
+		// the memory pack appended before this read; one landing before the write is lost.
+		const path = join(repo, USAGE_FILE);
+		try {
+			const lines = readFileSync(path, "utf8").split("\n");
+			writeFileSync(path, lines.filter((l) => !CONFLICT_MARKER.test(l)).join("\n"));
+		} catch {
+			break;
+		}
+		if (!git(repo, ["add", "--", USAGE_FILE]).ok) break;
+		if (git(repo, ["rebase", "--continue"], { env: { GIT_EDITOR: "true" } }).ok) return null;
+	}
+	return `Shared memories: could not finish the rebase after merging ${USAGE_FILE}. Will retry on next Stop.`;
+}
+
+function abortRebase(repo: string, why: string): void {
+	const abort = git(repo, ["rebase", "--abort"]);
+	if (!abort.ok) {
+		say(
+			`Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Run ${RESOLVE_COMMAND} to finish it.`,
+		);
+		detail(abort.stderr.replace(/\n$/, ""));
+	} else {
+		say(why);
+	}
+}
+
 export function syncToRemote(repo: string, attemptsRaw: string | undefined): void {
 	const attempts = pushAttempts(attemptsRaw);
 	for (let attempt = 1; ; attempt++) {
@@ -28,21 +72,16 @@ export function syncToRemote(repo: string, attemptsRaw: string | undefined): voi
 		const pull = git(repo, ["pull", "--rebase", "--autostash", "--quiet"], { env: { LC_ALL: "C" } });
 		if (!pull.ok) {
 			const err = pull.stderr.replace(/\n$/, "");
-			if (/conflict/i.test(err)) {
-				const abort = git(repo, ["rebase", "--abort"]);
-				if (!abort.ok) {
-					say(
-						`Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Run ${RESOLVE_COMMAND} to finish it.`,
-					);
-					detail(abort.stderr.replace(/\n$/, ""));
-				} else {
-					say(`Shared memories: auto-push paused — rebase conflict. Run ${RESOLVE_COMMAND} to merge it.`);
-				}
-			} else {
+			if (!/conflict/i.test(err)) {
 				say("Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.");
 				detail(err);
+				return;
 			}
-			return;
+			const why = finishUsageOnlyRebase(repo);
+			if (why !== null) {
+				abortRebase(repo, why);
+				return;
+			}
 		}
 
 		const push = git(repo, ["push", "--quiet"]);

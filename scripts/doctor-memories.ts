@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { isWorkTree } from "../runtime/lib/git.mts";
+import { hasUnionRule, isWorkTree } from "../runtime/lib/git.mts";
+import { USAGE_FILE } from "../runtime/lib/naming.mts";
 
 // mcs shellScript doctor contract: 0 pass, 1 fail, 2 warn, 3 skip.
 const project = process.env["MCS_PROJECT_PATH"] || process.cwd();
@@ -26,9 +27,15 @@ if (!isSymlink(link)) {
 	problems.push("symlink exists but doesn't resolve to a git checkout (run 'mcs sync' to repair)");
 }
 
-if (problems.length > 0) {
-	process.stdout.write("Shared memories setup is unhealthy:\n");
-	for (const p of problems) process.stdout.write(`  - ${p}\n`);
-	process.exit(1);
+// A warning only: without the rule the Stop hook still merges usage conflicts itself.
+const warnings: string[] = [];
+if (existsSync(join(repo, ".git")) && !hasUnionRule(repo)) {
+	warnings.push(`no merge=union rule for ${USAGE_FILE} in the checkout (run 'mcs sync' to add it)`);
+}
+
+if (problems.length + warnings.length > 0) {
+	process.stdout.write(`Shared memories setup ${problems.length > 0 ? "is unhealthy" : "needs attention"}:\n`);
+	for (const p of [...problems, ...warnings]) process.stdout.write(`  - ${p}\n`);
+	process.exit(problems.length > 0 ? 1 : 2);
 }
 process.exit(0);

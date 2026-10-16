@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { rmSync, symlinkSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { git, readGolden, runScript, type RunResult, type ScriptFixture } from "./harness.ts";
+import { dropUnionRule, git, readGolden, runScript, writeGolden, type RunResult, type ScriptFixture } from "./harness.ts";
 
 
 /**
@@ -11,6 +11,7 @@ import { git, readGolden, runScript, type RunResult, type ScriptFixture } from "
  * was removed. A drift here is a change in what the pack does, not a stale test.
  */
 function check(name: string, actual: RunResult, expect?: RegExp): void {
+	if (process.env["UPDATE_GOLDENS"] === "1") writeGolden(name, actual);
 	const golden = readGolden(name);
 	assert.ok(golden, `no golden recorded for "${name}"`);
 	assert.equal(actual.stdout, golden.stdout, `stdout drifted from recorded behaviour for "${name}"`);
@@ -64,6 +65,21 @@ const fixtures: readonly ScriptFixture[] = [
 			unlinkSync(link);
 			mkdirSync(join(project, "elsewhere"), { recursive: true });
 			symlinkSync(join(project, "elsewhere"), link);
+		},
+	},
+	{
+		name: "doctor: a missing union rule for the usage file warns",
+		script: "doctor-memories",
+		expectCode: 2,
+		setup: dropUnionRule,
+	},
+	{
+		name: "doctor: a missing union rule is listed with the failures",
+		script: "doctor-memories",
+		expectCode: 1,
+		setup: (repo, project) => {
+			dropUnionRule(repo);
+			unlinkSync(join(claude(project), "memories"));
 		},
 	},
 	{ name: "doctor-remote: reachable remote passes", script: "doctor-memories-remote", expectCode: 0 },

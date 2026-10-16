@@ -118,7 +118,7 @@ Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarn
 
 | Script | When | What It Does |
 |--------|------|-------------|
-| **configure-memories.ts** | `mcs sync` | Sparse-clones the shared repo, sets up the symlink, migrates any pre-existing `.claude/memories/` into the shared folder |
+| **configure-memories.ts** | `mcs sync` | Sparse-clones the shared repo, sets up the symlink, adds the `merge=union` rule for [the usage file](#-the-usage-file), migrates any pre-existing `.claude/memories/` into the shared folder |
 
 ### CLAUDE.local.md Section
 
@@ -130,7 +130,7 @@ Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarn
 
 | Check | What It Verifies |
 |-------|-----------------|
-| **Shared memories setup** | Sparse checkout exists and the symlink resolves to a live git repo (auto-fixable via `mcs sync`) |
+| **Shared memories setup** | Sparse checkout exists and the symlink resolves to a live git repo; warns when the usage file's `merge=union` rule is missing (auto-fixable via `mcs sync`) |
 | **Shared memories remote access** | Auth + network reachability via `git ls-remote origin`; warns (doesn't fail) on issues since local reads still work |
 
 ### Dependencies
@@ -226,7 +226,8 @@ On engineer disks, the pack materializes as:
 │   ├── README.md, LICENSE, etc.     # any root-level files your repo ships
 │   └── memories/
 │       ├── learning_*.md
-│       └── decision_*.md
+│       ├── decision_*.md
+│       └── .usage.tsv                # last-read dates, written by the memory pack
 └── memories -> .memories-repo/memories   # symlink Claude Code reads
 ```
 
@@ -332,6 +333,19 @@ The Stop hook retries on every turn, so a network blip or a teammate pushing fir
 ```
 /resolve-memories [optional reason]
 ```
+
+---
+
+## 📊 The Usage File
+
+The memory pack records the day each memory was last opened in `memories/.usage.tsv`, and this pack shares it like any memory, so the team sees which memories anyone still reads. The memory pack owns the format; this pack only moves it:
+
+- **Guardrail**: exactly `memories/.usage.tsv` is exempt from the naming rule.
+- **Commits**: a change to it alone commits as `<you>: update memory usage`; beside memory edits it is left out of the message.
+- **Merging**: `mcs sync` adds `memories/.usage.tsv merge=union` to the checkout's `.git/info/attributes`, so two clones updating it never conflict. Nothing is committed to the team's repo. A clone that hasn't re-synced still pushes: when the usage file is the only conflict, the Stop hook keeps both sides' lines and finishes the rebase itself. A conflict on any real memory still pauses for `/resolve-memories`.
+- **SessionStart**: rows written after the last Stop are autostashed around the fast-forward, and don't count as lingering state; the next Stop pushes them.
+- **Migration**: a pre-existing local `.usage.tsv` is appended onto the shared one. Duplicate rows are expected; the memory pack compacts them.
+- **Doctor**: warns when the `merge=union` rule is missing.
 
 ---
 

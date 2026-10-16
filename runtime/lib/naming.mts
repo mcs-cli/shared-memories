@@ -6,3 +6,11 @@ export const RENAME_HINT =
 
 /** The slash command that fixes what retrying never will. Every hint names it through this. */
 export const RESOLVE_COMMAND = "/resolve-memories";
+
+/** Last-read dates the memory pack appends to. Exempt from the naming rule, and merged as a union. */
+export const USAGE_FILE = "memories/.usage.tsv";
+
+export const USAGE_ATTRIBUTE = `${USAGE_FILE} merge=union`;
+
+/** The naming rule, plus the one bookkeeping file that is allowed to break it. */
+export const isAllowedPath = (f: string): boolean => f === USAGE_FILE || ALLOWED_PATTERN.test(f);

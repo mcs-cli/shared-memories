@@ -1,4 +1,5 @@
 import { gitLines } from "./git.mts";
+import { USAGE_FILE } from "./naming.mts";
 
 export type Change =
 	| { readonly kind: "add" | "update" | "remove"; readonly path: string }
@@ -56,9 +57,11 @@ const byKindThenPath = (x: Change, y: Change): number =>
  * subject and one line per file in the body. Who and what, not which machine:
  * the date is already in the commit.
  */
-export function commitMessage(who: string, changes: readonly Change[]): string {
+export function commitMessage(who: string, all: readonly Change[]): string {
+	// Read dates are bookkeeping; listing them would make every commit read as a memory edit.
+	const changes = all.filter((c) => c.path !== USAGE_FILE);
 	const [only] = changes;
-	if (only === undefined) return `${who}: update memories`;
+	if (only === undefined) return all.length > 0 ? `${who}: update memory usage` : `${who}: update memories`;
 	if (changes.length === 1) return `${who}: ${only.kind} ${names(only)}`;
 
 	const summary = ORDER.flatMap((k) => {

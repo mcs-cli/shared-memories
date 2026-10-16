@@ -1,5 +1,5 @@
 {
-  "stdout": "Shared memories already linked — leaving as-is.\n",
+  "stdout": "Added the merge=union rule for memories/.usage.tsv to <TMP>/work/project/.claude/.memories-repo/.git/info/attributes.\nShared memories already linked — leaving as-is.\n",
   "stderr": "",
   "code": 0,
   "git": ".memories-repo memories\nlearning_shared_seed.md"
