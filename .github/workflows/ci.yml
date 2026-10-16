@@ -1,6 +1,6 @@
 name: ci
 
-# macOS only, deliberately: mcs is a Swift/Homebrew tool that installs on macOS,
+# Tests run on macOS only, deliberately: mcs is a Swift/Homebrew tool that installs on macOS,
 # so it is the only platform that can actually install this pack. The suite runs
 # the hooks exactly as mcs does, by executing them and letting the shebang pick
 # the interpreter.
@@ -16,6 +16,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
   test:
     strategy:
       fail-fast: false
@@ -29,6 +40,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
 
       - name: node is new enough to strip types
         run: |
@@ -37,8 +49,9 @@ jobs:
             if (maj < 22 || (maj === 22 && min < 6)) { console.error("::error::node " + process.versions.node + " cannot strip types"); process.exit(1); }
             console.log("node " + process.versions.node + " strips types");'
 
-      - name: install typecheck deps (CI-only, never shipped)
-        run: npm install --no-save --silent typescript@5.9.2 @types/node@22.9.0
+      # Biome's native binaries are optional deps; this job never lints, so skip them.
+      - name: install typecheck tooling (never shipped)
+        run: npm ci --omit=optional
 
       - name: typecheck
         run: npm run typecheck
