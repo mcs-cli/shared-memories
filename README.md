@@ -40,7 +40,7 @@ This pack implements a **closed-loop sharing system** that pulls the latest team
 
 ```mermaid
 flowchart TD
-    S([Session starts]) --> P["SessionStart hook<br/>git pull --ff-only"]
+    S([Session starts]) --> P["SessionStart hooks<br/>stuck-state check · git pull --ff-only in the background"]
     P --> W["Work session<br/>continuous-learning writes<br/>learning_*.md · decision_*.md"]
     W --> T["Stop hook<br/>auto-push"]
     T -->|"filename guard<br/>+ configurable push policy"| R
@@ -58,7 +58,7 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 | Piece | What | How |
 |-------|------|-----|
-| **SessionStart Hook** | Pulls the latest team memories at session start | `git pull --ff-only` against the shared checkout; also flags what would keep your memories from reaching the team: lingering uncommitted/unpushed state, a rebase left half-finished, or a checkout with no upstream |
+| **SessionStart Hooks** | Pull the latest team memories at session start, without making the session wait for the network | An async hook runs `git pull --ff-only` against the shared checkout; a sync one, local git only, flags what would keep your memories from reaching the team: lingering uncommitted/unpushed state, a rebase left half-finished, or a checkout with no upstream |
 | **Stop Hook** | Commits and pushes every memory change after each Claude turn — additions, edits and deletions alike | Runs async; the filename guardrail blocks bad names; commits as the git user with a subject that says what changed; rebases and retries with jitter when a teammate pushed first |
 | **/resolve-memories Slash Command** | Fixes what the Stop hook can't fix by retrying: merges rebase conflicts, renames files the guardrail rejects, restores a missing upstream | Commits, rebases and pushes once the blocker is gone; diagnoses auth and git-identity failures, which need a human |
 | **Sparse Checkout + Symlink** | Keeps the shared repo invisible on disk | `.claude/.memories-repo/` is a blobless single-branch sparse clone; `.claude/memories` is a symlink Claude Code reads from |
@@ -68,7 +68,7 @@ Captures still come from [`mcs-cli/memory`](https://github.com/mcs-cli/memory). 
 
 1. **First `mcs sync`** — the configure script clones the shared repo sparsely into `.claude/.memories-repo/`, symlinks `.claude/memories` to it, and migrates any pre-existing local memories into the shared folder (conflicts are preserved for manual review)
 
-2. **Session starts** — the SessionStart hook fast-forwards the shared checkout and warns about any lingering state (auth failure, rebase conflict, guardrail-rejected files, a rebase left in progress, no upstream)
+2. **Session starts** — one SessionStart hook warns about any lingering state, while another fast-forwards the shared checkout in the background (auth failure, rebase conflict, guardrail-rejected files, a rebase left in progress, no upstream)
 
 3. **During work** — Claude uses the [`continuous-learning`](https://github.com/mcs-cli/memory) skill to write new `learning_*.md` / `decision_*.md` files
 
@@ -103,10 +103,11 @@ flowchart TD
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
-| **pull.mts** | `SessionStart` | Fast-forwards the shared memories checkout; warns when previous state is stuck, a rebase is left in progress, or the checkout has no upstream |
-| **autopush.mts** | `Stop` (async) | Commits every change under `memories/` as the git user, then rebases and pushes; the filename guardrail blocks bad names |
+| **status.mjs** | `SessionStart` | Warns when previous state is stuck, a rebase is left in progress, or the checkout has no upstream. Local git only |
+| **pull.mjs** | `SessionStart` (async) | Fast-forwards the shared memories checkout; skips quietly mid-rebase or without an upstream, which `status.mjs` reports |
+| **autopush.mjs** | `Stop` (async) | Commits every change under `memories/` as the git user, then rebases and pushes; the filename guardrail blocks bad names |
 
-Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarning <path>`: mcs prefixes the interpreter the hook declares in `hookInterpreter`, and never looks at the shebang. They install to `.claude/hooks/shared-memories/`, with the library they import beside them in `lib/`.
+Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarning <path>`: mcs prefixes the interpreter the hook declares in `hookInterpreter`, and never looks at the shebang. They install to `.claude/hooks/shared-memories/`, with the library they import beside them in `lib/`. Each entry is a small plain-JS bootstrap that turns on Node's compile cache before importing its `lib/*-main.mts` body; from Node 23 the cache also skips type stripping, which is most of a hook's startup.
 
 ### Slash Commands
 
@@ -198,9 +199,10 @@ shared-memories/
 ├── commands/
 │   └── resolve-memories.md          # Slash command for conflicts and stuck pushes
 ├── runtime/                         # Installed to .claude/hooks/shared-memories/
-│   ├── pull.mts                     # SessionStart: pull + stuck-state warning
-│   ├── autopush.mts                 # Stop: auto-commit + push (async)
-│   └── lib/                         # git, paths, naming, pending, commit-message, push
+│   ├── status.mjs                   # SessionStart: stuck-state warning
+│   ├── pull.mjs                     # SessionStart: pull (async)
+│   ├── autopush.mjs                 # Stop: auto-commit + push (async)
+│   └── lib/                         # hook bodies (*-main.mts) and the library they share
 ├── scripts/                         # Run in place from the pack checkout
 │   ├── configure-memories.ts        # Sparse clone + symlink + migration
 │   ├── doctor-memories.ts           # Setup health check
@@ -219,8 +221,9 @@ On engineer disks, the pack materializes as:
 ```
 <project>/.claude/
 ├── hooks/shared-memories/           # run by mcs via each hook's declared hookInterpreter
-│   ├── pull.mts
-│   ├── autopush.mts
+│   ├── status.mjs
+│   ├── pull.mjs
+│   ├── autopush.mjs
 │   └── lib/                         # imported as ./lib/… by the entries beside it
 ├── .memories-repo/                  # sparse clone of MEMORIES_BRANCH
 │   ├── README.md, LICENSE, etc.     # any root-level files your repo ships

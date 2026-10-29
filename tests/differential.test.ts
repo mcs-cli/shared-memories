@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
-import { operationInProgress } from "../runtime/lib/git.mts";
+import { probe } from "../runtime/lib/git.mts";
 import {
   commit,
   dropUnionRule,
@@ -51,25 +51,25 @@ function assertParity(fx: Fixture): void {
   check(fx.name, runHook(fx), fx.expect, fx.abortsDiffer);
 }
 
-const pull: readonly Fixture[] = [
-  { name: "pull: clean tree", hook: "pull" },
+const status: readonly Fixture[] = [
+  { name: "status: clean tree", hook: "status" },
   {
-    name: "pull: an untracked memory reports lingering state",
+    name: "status: an untracked memory reports lingering state",
     expect: /lingering state/,
-    hook: "pull",
+    hook: "status",
     setup: repo => memory(repo, "learning_pending_one.md"),
   },
   {
-    name: "pull: two untracked memories pluralise the same way",
-    hook: "pull",
+    name: "status: two untracked memories pluralise the same way",
+    hook: "status",
     setup: repo => {
       memory(repo, "learning_pending_one.md");
       memory(repo, "learning_pending_two.md");
     },
   },
   {
-    name: "pull: unpushed commit only",
-    hook: "pull",
+    name: "status: unpushed commit only",
+    hook: "status",
     setup: repo => {
       memory(repo, "learning_committed_x.md");
       git(repo, "add", "-A");
@@ -77,8 +77,8 @@ const pull: readonly Fixture[] = [
     },
   },
   {
-    name: "pull: uncommitted and unpushed together",
-    hook: "pull",
+    name: "status: uncommitted and unpushed together",
+    hook: "status",
     setup: repo => {
       memory(repo, "learning_committed_x.md");
       git(repo, "add", "-A");
@@ -87,36 +87,36 @@ const pull: readonly Fixture[] = [
     },
   },
   {
-    name: "pull: no upstream configured",
+    name: "status: no upstream configured",
     expect: /no upstream branch/,
-    hook: "pull",
+    hook: "status",
     setup: repo => {
       git(repo, "branch", "--unset-upstream");
       memory(repo, "learning_pending_one.md");
     },
   },
   {
-    name: "pull: missing checkout",
-    hook: "pull",
+    name: "status: missing checkout",
+    hook: "status",
     setup: repo => rmSync(repo, { recursive: true, force: true }),
   },
-  { name: "pull: malformed stdin", hook: "pull", stdin: "not json" },
+  { name: "status: malformed stdin", hook: "status", stdin: "not json" },
   {
-    name: "pull: empty stdin still does the work",
-    hook: "pull",
+    name: "status: empty stdin still does the work",
+    hook: "status",
     stdin: "",
     setup: repo => memory(repo, "learning_pending_one.md"),
   },
   {
-    name: "pull: concatenated JSON stream is accepted",
-    hook: "pull",
+    name: "status: concatenated JSON stream is accepted",
+    hook: "status",
     stdin: '{"a":1} {"b":2}',
     setup: repo => memory(repo, "learning_pending_one.md"),
   },
 ];
 
-describe("pull — behaviour is pinned", () => {
-  for (const fx of pull) test(fx.name, () => assertParity(fx));
+describe("status — behaviour is pinned", () => {
+  for (const fx of status) test(fx.name, () => assertParity(fx));
 });
 
 const autopush: readonly Fixture[] = [
@@ -299,7 +299,7 @@ const pathspec: readonly Fixture[] = [
   },
   {
     name: "pathspec: SessionStart does not count a dirty root file as pending",
-    hook: "pull",
+    hook: "status",
     setup: repo => withDirtyRootFile(repo),
   },
 ];
@@ -415,8 +415,7 @@ const edges: readonly Fixture[] = [
     },
   },
   {
-    name: "edge: SessionStart survives a failed fast-forward",
-    expect: /lingering state/,
+    name: "edge: the background pull survives a failed fast-forward",
     hook: "pull",
     setup: (repo, project) => {
       teammatePushes(project, "learning_theirs_a.md");
@@ -462,7 +461,7 @@ const edges: readonly Fixture[] = [
   {
     name: "edge: a rebase left in progress is flagged at SessionStart",
     expect: /a rebase is in progress[^"]*\/resolve-memories/,
-    hook: "pull",
+    hook: "status",
     setup: rebaseLeftInProgress,
   },
   {
@@ -477,7 +476,7 @@ const edges: readonly Fixture[] = [
     },
     inspect: repo => {
       execFileSync("chmod", ["-R", "u+w", join(repo, ".git", "objects")]);
-      assert.equal(operationInProgress(repo), null, "the rebase was left behind");
+      assert.equal(probe(repo), null, "the rebase was left behind");
     },
   },
   {
@@ -626,7 +625,7 @@ const usage: readonly Fixture[] = [
   {
     name: "usage: a dirty usage file alone is not lingering state at SessionStart",
     expect: /^$/,
-    hook: "pull",
+    hook: "status",
     setup: repo => writeFileSync(usageFile(repo), `${USAGE_SEED}learning_seed_topic.md\t2026-10-03\n`),
   },
   {

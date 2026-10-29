@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, gitLines, operationInProgress } from "./git.mts";
+import { git, gitLines, probe } from "./git.mts";
 import { detail, say } from "./hook-io.mts";
 import { RESOLVE_COMMAND, USAGE_FILE } from "./naming.mts";
 
@@ -86,7 +86,7 @@ export function syncToRemote(repo: string, attemptsRaw: string | undefined): voi
       if (!/conflict/i.test(err)) {
         // A failure mid-pick (a missing object, say) leaves the rebase behind, and that pauses every later Stop.
         // Aborting now is safe: everything is committed or in the autostash.
-        const midRebase = operationInProgress(repo) === "rebase";
+        const midRebase = probe(repo) === "rebase";
         const message = pullFailure(err, midRebase);
         if (midRebase) abortRebase(repo, message);
         else say(message);

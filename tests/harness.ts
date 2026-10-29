@@ -8,14 +8,16 @@ import { USAGE_ATTRIBUTE } from "../runtime/lib/naming.mts";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 
-type HookName = "pull" | "autopush";
+type HookName = "status" | "pull" | "autopush";
 
 const HOOK_FILE: Record<HookName, string> = {
-  pull: "pull.mts",
-  autopush: "autopush.mts",
+  status: "status.mjs",
+  pull: "pull.mjs",
+  autopush: "autopush.mjs",
 };
 
 const EVENT: Record<HookName, string> = {
+  status: "SessionStart",
   pull: "SessionStart",
   autopush: "Stop",
 };

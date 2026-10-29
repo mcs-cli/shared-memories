@@ -57,23 +57,18 @@ export function hasUpstream(dir: string): boolean {
   return git(dir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).ok;
 }
 
-/** Commits on HEAD the upstream lacks. Assumes an upstream; `unpushedCount` checks first. */
-export function aheadOfUpstream(dir: string): number {
-  const n = Number.parseInt(gitOut(dir, ["rev-list", "@{u}..HEAD", "--count"]), 10);
-  return Number.isNaN(n) ? 0 : n;
-}
-
-export function unpushedCount(dir: string): number {
-  return hasUpstream(dir) ? aheadOfUpstream(dir) : 0;
-}
+/** Why the hook can't run, the operation left in progress, or null when the checkout is ready. */
+export type Probe = "no-git" | "not-worktree" | "rebase" | "merge" | null;
 
 /**
- * A rebase or merge someone left half-finished. Staging then would mark the
- * conflicted files resolved, markers and all, and commit into the detached HEAD.
+ * Whether git runs, `dir` is a checkout, and a rebase or merge was left half-finished there, in one
+ * spawn. Staging mid-operation would mark the conflicted files resolved, markers and all, and commit
+ * into the detached HEAD.
  */
-export function operationInProgress(dir: string): "rebase" | "merge" | null {
-  const paths = gitLines(dir, [
+export function probe(dir: string): Probe {
+  const r = git(dir, [
     "rev-parse",
+    "--is-inside-work-tree",
     "--path-format=absolute",
     "--git-path",
     "rebase-merge",
@@ -82,10 +77,26 @@ export function operationInProgress(dir: string): "rebase" | "merge" | null {
     "--git-path",
     "MERGE_HEAD",
   ]);
-  const [rebaseMerge, rebaseApply, mergeHead] = paths.map(p => existsSync(p));
+  if (r.failure === "ENOENT") return "no-git";
+  if (!r.ok) return "not-worktree";
+  const [rebaseMerge, rebaseApply, mergeHead] = r.stdout
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map(p => existsSync(p));
   if (rebaseMerge === true || rebaseApply === true) return "rebase";
-  if (mergeHead === true) return "merge";
-  return null;
+  return mergeHead === true ? "merge" : null;
+}
+
+/** Commits on HEAD the upstream lacks, or null when there is no upstream. */
+export function ahead(dir: string): number | null {
+  const r = git(dir, ["rev-list", "@{u}..HEAD", "--count"]);
+  if (r.ok) {
+    const n = Number.parseInt(r.stdout.trim(), 10);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  // rev-list fails for more than a missing upstream (an unborn HEAD has one and nothing ahead of it).
+  return hasUpstream(dir) ? 0 : null;
 }
 
 /**
