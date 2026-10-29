@@ -25,6 +25,8 @@ If nothing is dirty, nothing is unpushed, an upstream exists and no rebase or me
 
 Go straight to step 6 and finish it. Don't commit anything new first. For a merge (`MERGE_HEAD`), resolve the conflicts the same way, then finish with `git -C .claude/.memories-repo commit --no-edit`.
 
+If the rebase can't be finished (its todo file is missing, or `rebase --continue` fails with no conflicted file), or memories were edited after it started, clear it with `git -C .claude/.memories-repo rebase --quit`. Never `--abort` or reset: both overwrite the working tree, and edits made after the rebase started are in no stash. Check that `git -C .claude/.memories-repo symbolic-ref -q HEAD` names the branch again, stop and tell the user if it doesn't, then continue at step 5.
+
 ## 3. Filename guardrail
 
 Every dirty file under `memories/` must match `^memories/(learning|decision)_[a-zA-Z0-9_-]+\.md$`, the pattern the Stop hook enforces, defined once in `runtime/lib/naming.mts`. For each offender:

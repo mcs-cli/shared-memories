@@ -103,6 +103,11 @@ export function hasUnionRule(dir: string): boolean {
   return top !== "" && gitOut(top, ["check-attr", "merge", "--", USAGE_FILE]).endsWith(": merge: union");
 }
 
+/** Whether the clone has the commit-graph turned off, which configure sets on every sync. */
+export function commitGraphOff(dir: string): boolean {
+  return gitOut(dir, ["config", "--type=bool", "--get", "core.commitGraph"]) === "false";
+}
+
 /** Whether the binary exists, the question `command -v git` asked. */
 export function gitPresent(): boolean {
   const r = spawnSync("git", ["--version"], { stdio: "ignore" });

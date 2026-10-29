@@ -249,6 +249,7 @@ export function makeProject(): { root: string; work: string; project: string; re
   git(repo, "push", "-q", "-u", "origin", "main");
   // What configure-memories writes to every clone.
   writeFileSync(attributesFile(repo), `${USAGE_ATTRIBUTE}\n`);
+  git(repo, "config", "core.commitGraph", "false");
 
   // The ancestor Node resolves module type from. "commonjs" is the hostile case.
   writeFileSync(join(project, "package.json"), '{"name":"consumer","type":"commonjs"}\n');

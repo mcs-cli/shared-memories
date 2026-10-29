@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { dropUnionRule, git, type RunResult, readGolden, runScript, type ScriptFixture, writeGolden } from "./harness.ts";
@@ -80,6 +80,30 @@ const fixtures: readonly ScriptFixture[] = [
       dropUnionRule(repo);
       unlinkSync(join(claude(project), "memories"));
     },
+  },
+  {
+    name: "doctor: a commit-graph left on warns",
+    script: "doctor-memories",
+    expectCode: 2,
+    setup: repo => git(repo, "config", "--unset", "core.commitGraph"),
+  },
+  {
+    name: "doctor: a rebase left in progress warns",
+    script: "doctor-memories",
+    expectCode: 2,
+    setup: repo => mkdirSync(join(repo, ".git", "rebase-merge")),
+  },
+  {
+    name: "doctor: a checkout with no upstream warns",
+    script: "doctor-memories",
+    expectCode: 2,
+    setup: repo => git(repo, "branch", "--unset-upstream"),
+  },
+  {
+    name: "doctor: a file the guardrail rejects warns",
+    script: "doctor-memories",
+    expectCode: 2,
+    setup: repo => writeFileSync(join(repo, "memories", "scratch.md"), "x\n"),
   },
   { name: "doctor-remote: reachable remote passes", script: "doctor-memories-remote", expectCode: 0 },
   {

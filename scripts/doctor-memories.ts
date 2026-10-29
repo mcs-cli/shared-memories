@@ -1,8 +1,9 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { hasUnionRule, isWorkTree } from "../runtime/lib/git.mts";
-import { USAGE_FILE } from "../runtime/lib/naming.mts";
+import { commitGraphOff, hasUnionRule, hasUpstream, isWorkTree, operationInProgress } from "../runtime/lib/git.mts";
+import { RESOLVE_COMMAND, USAGE_FILE } from "../runtime/lib/naming.mts";
+import { badNames } from "../runtime/lib/pending.mts";
 
 // mcs shellScript doctor contract: 0 pass, 1 fail, 2 warn, 3 skip.
 const project = process.env.MCS_PROJECT_PATH || process.cwd();
@@ -29,8 +30,27 @@ if (!isSymlink(link)) {
 
 // A warning only: without the rule the Stop hook still merges usage conflicts itself.
 const warnings: string[] = [];
-if (existsSync(join(repo, ".git")) && !hasUnionRule(repo)) {
+const checkout = isWorkTree(repo);
+if (checkout && !hasUnionRule(repo)) {
   warnings.push(`no merge=union rule for ${USAGE_FILE} in the checkout (run 'mcs sync' to add it)`);
+}
+if (checkout && !commitGraphOff(repo)) {
+  warnings.push("core.commitGraph is not off in the checkout (run 'mcs sync' to set it)");
+}
+
+// Stuck states that pause auto-push. Warnings, since reads still work and mcs sync can't fix them.
+// A rebase detaches HEAD, which would also read as a missing upstream.
+if (checkout) {
+  const op = operationInProgress(repo);
+  if (op !== null) {
+    warnings.push(`a ${op} is in progress in the checkout, so auto-push is paused (run ${RESOLVE_COMMAND})`);
+  } else if (!hasUpstream(repo)) {
+    warnings.push(`the checkout has no upstream branch, so memories never leave this machine (run ${RESOLVE_COMMAND})`);
+  }
+  const bad = badNames(repo);
+  if (bad.length > 0) {
+    warnings.push(`${bad.length} file(s) the naming guardrail rejects block every push: ${bad.join(", ")} (run ${RESOLVE_COMMAND})`);
+  }
 }
 
 if (problems.length + warnings.length > 0) {

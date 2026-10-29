@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
+import { operationInProgress } from "../runtime/lib/git.mts";
 import {
   commit,
   dropUnionRule,
@@ -355,6 +356,13 @@ const rebaseLeftInProgress = (repo: string, project: string) => {
   memory(repo, "learning_new_thing.md", "Written while the rebase was stuck.\n");
 };
 
+/** Runs `cmd` once the rebase has started, so the pick fails with no conflict to report. */
+const failMidRebase = (repo: string, cmd: string) => {
+  const hook = join(repo, ".git", "hooks", "post-checkout");
+  writeFileSync(hook, `#!/bin/sh\n[ -e .git/rebase-merge ] && ${cmd}\nexit 0\n`);
+  chmodSync(hook, 0o755);
+};
+
 const edges: readonly Fixture[] = [
   {
     name: "edge: a locked index aborts the turn instead of reporting nothing",
@@ -456,6 +464,47 @@ const edges: readonly Fixture[] = [
     expect: /a rebase is in progress[^"]*\/resolve-memories/,
     hook: "pull",
     setup: rebaseLeftInProgress,
+  },
+  {
+    name: "edge: a pull that fails mid-rebase without a conflict is rolled back",
+    expect: /^Shared memories: pull --rebase failed partway and was rolled back\. Will retry on next Stop\.$/m,
+    hook: "autopush",
+    setup: (repo, project) => {
+      teammatePushes(project, "learning_theirs_new.md");
+      memory(repo, "learning_ours_own.md", "Ours.\n");
+      // Picking our commit has to write a new tree; the abort only reads.
+      failMidRebase(repo, "chmod -R a-w .git/objects");
+    },
+    inspect: repo => {
+      execFileSync("chmod", ["-R", "u+w", join(repo, ".git", "objects")]);
+      assert.equal(operationInProgress(repo), null, "the rebase was left behind");
+    },
+  },
+  {
+    name: "edge: a commit-graph failure names mcs sync instead of a retry",
+    expect: /commit-graph\. Run `mcs sync` to turn it off/,
+    hook: "autopush",
+    setup: (repo, project) => {
+      teammatePushes(project, "learning_theirs_new.md");
+      memory(repo, "learning_ours_own.md", "Ours.\n");
+      // git's wording from a blobless clone on 2.50; no current git reproduces the failure itself.
+      failMidRebase(
+        repo,
+        "echo 'fatal: commit 0123abc exists in commit-graph but not in the object database' >&2; chmod -R a-w .git/objects",
+      );
+    },
+    inspect: repo => execFileSync("chmod", ["-R", "u+w", join(repo, ".git", "objects")]),
+  },
+  {
+    name: "edge: a mid-rebase failure whose abort also fails pauses for resolve",
+    expect: /^Shared memories: the rebase failed AND --abort failed .* Run \/resolve-memories to finish it\.$/m,
+    hook: "autopush",
+    setup: (repo, project) => {
+      teammatePushes(project, "learning_theirs_new.md");
+      memory(repo, "learning_ours_own.md", "Ours.\n");
+      // An untracked file where our commit adds one blocks both the pick and the reset back.
+      failMidRebase(repo, "echo stray > memories/learning_ours_own.md");
+    },
   },
 ];
 
