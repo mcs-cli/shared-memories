@@ -38,8 +38,8 @@ function runWithNoReader(hook: string, stdin: string, setup?: (repo: string) => 
 
 describe("a hook whose reader has gone away", () => {
   test("SessionStart still exits 0 and reports no stack", async () => {
-    // Lingering state makes pull write its additionalContext into the closed pipe.
-    const r = await runWithNoReader("pull.mts", "{}", repo => memory(repo, "learning_pending_one.md"));
+    // Lingering state makes status write its additionalContext into the closed pipe.
+    const r = await runWithNoReader("status.mjs", "{}", repo => memory(repo, "learning_pending_one.md"));
     assert.equal(r.signal, null, "the hook must not die on SIGPIPE");
     assert.equal(r.code, 0);
     assert.doesNotMatch(r.stderr, /EPIPE/, "EPIPE must not surface as a failure");

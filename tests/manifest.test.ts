@@ -47,11 +47,12 @@ describe("techpack manifest", () => {
 });
 
 describe("hook install contract", () => {
-  const dests = [...manifest.matchAll(/destination:\s*(\S+\.mts)/g)].map(m => m[1] as string);
+  const dests = [...manifest.matchAll(/^\s*hook:\n\s*source:\s*\S+\n\s*destination:\s*(\S+)/gm)].map(m => m[1] as string);
 
-  test("two hooks are registered, all TypeScript", () => {
-    assert.equal(dests.length, 2, "expected two registered hook entry points");
-    for (const d of dests) assert.ok(existsSync(join(REPO, "runtime", d)), `${d} is registered but not shipped`);
+  test("every shipped entry point is registered as a hook, and nothing else is", () => {
+    const shipped = readdirSync(join(REPO, "runtime")).filter(f => f.endsWith(".mjs"));
+    assert.ok(dests.length > 0, "the manifest registers no hooks");
+    assert.deepEqual([...dests].sort(), shipped.sort());
   });
 
   test("no shell survives anywhere in the pack", () => {
@@ -61,7 +62,7 @@ describe("hook install contract", () => {
 
   test("every hook is declared with the interpreter its shebang names", () => {
     // mcs runs `<hookInterpreter> <path>` and ignores the shebang; the suite runs the shebang.
-    // `.mts` is in mcs's ambiguousExtensions, so a missing hookInterpreter falls back to bash.
+    // The library they import is `.mts`, which needs the type-stripping flag even from a `.mjs` entry.
     const declared = [...manifest.matchAll(/^\s*hookInterpreter:\s*(.+?)\s*$/gm)].map(m => m[1]);
     assert.equal(declared.length, dests.length, "each hook needs its own hookInterpreter");
     for (const d of dests) {
@@ -84,8 +85,27 @@ describe("hook install contract", () => {
     for (const d of dests) {
       const body = readFileSync(join(REPO, "runtime", d), "utf8");
       assert.doesNotMatch(body, /from "\.\.\//, `${d} reaches outside its own directory`);
-      assert.match(body, /from "\.\/lib\//, `${d} does not import the shared library`);
+      assert.match(body, /import\("\.\/lib\//, `${d} does not import the shared library`);
     }
+  });
+
+  test("every entry point enables the compile cache before any TypeScript loads", () => {
+    // Stripping even one `.mts` before the cache is on loads the stripper, which is
+    // most of the startup the cache exists to save. So the entry stays plain JS, and
+    // the library is imported dynamically, after the call.
+    for (const d of dests) {
+      const body = readFileSync(join(REPO, "runtime", d), "utf8");
+      const enable = body.indexOf("enableCompileCache");
+      assert.ok(enable >= 0, `${d} never enables the compile cache`);
+      assert.ok(enable < body.indexOf("import("), `${d} imports its library before enabling the cache`);
+      assert.doesNotMatch(body, /^\s*(?:import|export)\s[^(;]*["']\.{1,2}\//m, `${d} statically imports the library`);
+    }
+  });
+
+  test("only the network pull runs async at SessionStart", () => {
+    const block = (id: string): string => manifest.slice(manifest.indexOf(`- id: ${id}`)).split(/\n\s*- id: /)[0] ?? "";
+    assert.match(block("hook-memories-pull"), /hookAsync: true/);
+    assert.doesNotMatch(block("hook-memories-status"), /hookAsync/, "the status hook is what reaches Claude's context");
   });
 
   test("every entry point is under the typecheck", () => {
@@ -108,7 +128,7 @@ describe("hook install contract", () => {
         ),
     );
     const unreachable = readdirSync(join(REPO, "runtime"), { recursive: true, encoding: "utf8" })
-      .filter(f => f.endsWith(".ts") || f.endsWith(".mts"))
+      .filter(f => f.endsWith(".ts") || f.endsWith(".mts") || f.endsWith(".mjs"))
       // readdirSync yields the platform separator; the globs are written with "/".
       .map(f => `runtime/${f.split(sep).join("/")}`)
       .filter(f => !reaches.some(re => re.test(f)));

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { commitGraphOff, hasUnionRule, hasUpstream, isWorkTree, operationInProgress } from "../runtime/lib/git.mts";
+import { commitGraphOff, hasUnionRule, hasUpstream, isWorkTree, probe } from "../runtime/lib/git.mts";
 import { RESOLVE_COMMAND, USAGE_FILE } from "../runtime/lib/naming.mts";
 import { badNames } from "../runtime/lib/pending.mts";
 
@@ -41,8 +41,8 @@ if (checkout && !commitGraphOff(repo)) {
 // Stuck states that pause auto-push. Warnings, since reads still work and mcs sync can't fix them.
 // A rebase detaches HEAD, which would also read as a missing upstream.
 if (checkout) {
-  const op = operationInProgress(repo);
-  if (op !== null) {
+  const op = probe(repo);
+  if (op === "rebase" || op === "merge") {
     warnings.push(`a ${op} is in progress in the checkout, so auto-push is paused (run ${RESOLVE_COMMAND})`);
   } else if (!hasUpstream(repo)) {
     warnings.push(`the checkout has no upstream branch, so memories never leave this machine (run ${RESOLVE_COMMAND})`);

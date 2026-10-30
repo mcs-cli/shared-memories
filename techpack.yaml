@@ -50,15 +50,26 @@ components:
       fileType: generic
 
   # ── Hooks ─────────────────────────────────────────────────
+  - id: hook-memories-status
+    displayName: Flag stuck shared-memories state
+    description: On SessionStart, if a previous Stop hook's auto-push left uncommitted or unpushed work behind, a rebase is left half-finished, or the checkout has no upstream, emits a system-reminder so the engineer knows. Local git only, so the session never waits on the network.
+    hookEvent: SessionStart
+    hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
+    hookTimeout: 10
+    hook:
+      source: runtime/status.mjs
+      destination: status.mjs
+
   - id: hook-memories-pull
-    displayName: Pull shared memories and flag stuck state
-    description: Fast-forwards the shared memories checkout on SessionStart. If a previous Stop hook's auto-push left uncommitted or unpushed work behind, a rebase is left half-finished, or the checkout has no upstream, emits a system-reminder so the engineer knows.
+    displayName: Pull shared memories
+    description: Fast-forwards the shared memories checkout on SessionStart, in the background. Skips quietly mid-rebase or without an upstream; the status hook reports both.
     hookEvent: SessionStart
     hookInterpreter: node --experimental-strip-types --disable-warning=ExperimentalWarning
     hookTimeout: 15
+    hookAsync: true
     hook:
-      source: runtime/pull.mts
-      destination: pull.mts
+      source: runtime/pull.mjs
+      destination: pull.mjs
 
   - id: hook-memories-autopush
     displayName: Sync shared memories
@@ -68,8 +79,8 @@ components:
     hookTimeout: 30
     hookAsync: true
     hook:
-      source: runtime/autopush.mts
-      destination: autopush.mts
+      source: runtime/autopush.mjs
+      destination: autopush.mjs
 
   # ── Commands ──────────────────────────────────────────────
   - id: command-resolve-memories

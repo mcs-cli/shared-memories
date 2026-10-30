@@ -15,7 +15,9 @@
     "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true
   },
-  "include": ["runtime/**/*.mts", "runtime/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+  "include": ["runtime/*.mjs", "runtime/**/*.mts", "runtime/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
 }
