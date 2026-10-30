@@ -130,7 +130,7 @@ Each runs as `node --experimental-strip-types --disable-warning=ExperimentalWarn
 
 | Check | What It Verifies |
 |-------|-----------------|
-| **Shared memories setup** | Sparse checkout exists and the symlink resolves to a live git repo; warns when the usage file's `merge=union` rule is missing (auto-fixable via `mcs sync`) |
+| **Shared memories setup** | Sparse checkout exists and the symlink resolves to a live git repo; warns when the usage file's `merge=union` rule is missing or `core.commitGraph` is on (both auto-fixable via `mcs sync`), and when auto-push is stuck on a rebase or merge in progress, a missing upstream, or a misnamed file (fix with `/resolve-memories`) |
 | **Shared memories remote access** | Auth + network reachability via `git ls-remote origin`; warns (doesn't fail) on issues since local reads still work |
 
 ### Dependencies
@@ -319,13 +319,13 @@ git -C .claude/.memories-repo log --diff-filter=D --oneline -- memories/<file>  
 git -C .claude/.memories-repo checkout <sha>^ -- memories/<file>                 # restore it; the next Stop pushes it
 ```
 
-The Stop hook retries on every turn, so a network blip or a teammate pushing first sorts itself out. A few things never clear up by retrying. SessionStart and the Stop hook name them when they happen, and `/resolve-memories` handles the ones Claude can fix:
+The Stop hook retries on every turn, so a network blip or a teammate pushing first sorts itself out. A pull that fails partway through its rebase without a conflict is rolled back on the spot, so it never leaves the checkout stuck. A few things never clear up by retrying. SessionStart and the Stop hook name them when they happen, and `/resolve-memories` handles the ones Claude can fix:
 
 | Blocker | What `/resolve-memories` does |
 |---------|-------------------------------|
 | **Rebase conflict** — you and a teammate edited the same memory | Merges both versions so neither side's facts are lost, and shows you the result. Asks you when one side deleted the file and the other edited it |
 | **Unconventional filename** — the guardrail halts every push | Proposes a `learning_…` / `decision_…` name and renames the file. Asks you when the type is unclear |
-| **Rebase left in progress** — the hooks pause rather than commit conflict markers | Finishes it, or aborts it if the conflict is outside `memories/` |
+| **Rebase left in progress** — the hooks pause rather than commit conflict markers | Finishes it, or aborts it if the conflict is outside `memories/`. A rebase that can't be finished is cleared with `--quit`, which keeps edits made since it started |
 | **No upstream** — commits stay local without a word | Sets the upstream to `origin/<branch>` |
 | **Auth** (SSH key not loaded, expired token) | Diagnoses only: run `ssh-add`, refresh credentials, check with `mcs doctor` |
 | **No git identity** — the commit itself fails | Diagnoses only: set `git config --global user.name` / `user.email` |
@@ -367,6 +367,8 @@ git -C .claude/.memories-repo ls-files --others --exclude-standard -- memories/ 
 Anything not matching `memories/(learning|decision)_*.md` needs renaming — or run `/resolve-memories`.
 
 **If SessionStart warns about lingering state**, the previous push hit one of the [blockers](#-conflicts-and-stuck-pushes). A network or auth issue clears on the next Stop once it's fixed (`mcs doctor` checks remote access); a rebase conflict or a misnamed file needs `/resolve-memories`.
+
+**If pulls fail with "in the commit graph file but not in the object database"**, the blobless checkout can't lazy-fetch with git's commit-graph on. `mcs sync` turns it off for the checkout (`core.commitGraph=false`), and `mcs doctor` warns when it's still on.
 
 ---
 

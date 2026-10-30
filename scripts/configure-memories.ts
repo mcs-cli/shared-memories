@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { changeLine } from "../runtime/lib/commit-message.mts";
-import { authorName, git, gitLines, gitOut, gitPresent, hasUnionRule, isWorkTree } from "../runtime/lib/git.mts";
+import { authorName, commitGraphOff, git, gitLines, gitOut, gitPresent, hasUnionRule, isWorkTree } from "../runtime/lib/git.mts";
 import { ALLOWED_PATTERN, isAllowedPath, RESOLVE_COMMAND, USAGE_ATTRIBUTE, USAGE_FILE } from "../runtime/lib/naming.mts";
 
 const out = (line: string) => process.stdout.write(`${line}\n`);
@@ -113,6 +113,19 @@ function ensureUnionAttribute(checkout: string): void {
   out(`Added the merge=union rule for ${USAGE_FILE} to ${path}.`);
 }
 
+// In a blobless clone the commit-graph can make git refuse to lazy-fetch objects
+// it needs mid-rebase, leaving the Stop hook's rebase half-applied.
+function ensureCommitGraphOff(checkout: string): void {
+  if (commitGraphOff(checkout)) return;
+  if (git(checkout, ["config", "--local", "core.commitGraph", "false"]).ok) out("Turned off core.commitGraph for the memories checkout.");
+}
+
+// Every sync, both paths: an already-linked clone predates whatever setting was added last.
+function configureClone(checkout: string): void {
+  ensureUnionAttribute(checkout);
+  ensureCommitGraphOff(checkout);
+}
+
 function stamp(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -135,7 +148,7 @@ function main(): void {
 
   // Case 1: healthy.
   if (isSymlink(link) && isWorkTree(link)) {
-    ensureUnionAttribute(link);
+    configureClone(link);
     out("Shared memories already linked — leaving as-is.");
     process.exit(0);
   }
@@ -209,7 +222,7 @@ function main(): void {
     mkdirSync(join(repoDir, "memories"), { recursive: true });
     linkMemories();
   }
-  ensureUnionAttribute(repoDir);
+  configureClone(repoDir);
 
   let imported = 0;
   let skipped = 0;

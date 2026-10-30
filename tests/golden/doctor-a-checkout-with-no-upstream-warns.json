@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories setup needs attention:\n  - the checkout has no upstream branch, so memories never leave this machine (run /resolve-memories)\n",
+  "stderr": "",
+  "code": 2,
+  "git": "status-all: \nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: \nlog: seed\nhead-body: \nupstream: (none)\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nworktree: learning_seed_topic.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

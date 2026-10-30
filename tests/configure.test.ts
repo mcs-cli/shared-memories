@@ -50,7 +50,10 @@ const fixtures: readonly ConfigureFixture[] = [
     name: "case 5: fresh setup clones and links",
     expectCode: 0,
     expect: /Cloning shared memories \(branch 'main', sparse\)[\s\S]*Done\. 1 memory file\(s\) available/,
-    inspect: claude => assert.equal(attributes(claude), "memories/.usage.tsv merge=union\n"),
+    inspect: claude => {
+      assert.equal(attributes(claude), "memories/.usage.tsv merge=union\n");
+      assert.equal(commitGraph(claude), "false");
+    },
   },
   {
     name: "case 1: an already-linked setup is left alone",
@@ -61,6 +64,7 @@ const fixtures: readonly ConfigureFixture[] = [
       git(claude, "clone", "-q", join(project, "..", "remote.git"), join(claude, ".memories-repo"));
       symlinkSync(".memories-repo/memories", join(claude, "memories"));
     },
+    inspect: claude => assert.equal(commitGraph(claude), "false"),
   },
   {
     name: "case 2: an empty memories directory is removed",
@@ -365,4 +369,19 @@ const usage: readonly ConfigureFixture[] = [
 
 describe("the usage file — behaviour is pinned", () => {
   for (const fx of usage) test(fx.name, () => assertParity(fx));
+});
+
+const commitGraph = (claude: string): string => git(join(claude, ".memories-repo"), "config", "--get", "core.commitGraph");
+
+describe("the commit-graph setting — behaviour is pinned", () => {
+  const fx: ConfigureFixture = {
+    name: "commit-graph: a clone that already has it off is left alone",
+    expectCode: 0,
+    pre: (project, claude) => {
+      linkedCheckout(project, claude);
+      git(join(claude, ".memories-repo"), "config", "core.commitGraph", "false");
+    },
+    inspect: claude => assert.equal(commitGraph(claude), "false"),
+  };
+  test(fx.name, () => assertParity(fx));
 });

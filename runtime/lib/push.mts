@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, gitLines } from "./git.mts";
+import { git, gitLines, operationInProgress } from "./git.mts";
 import { detail, say } from "./hook-io.mts";
 import { RESOLVE_COMMAND, USAGE_FILE } from "./naming.mts";
 
@@ -56,11 +56,24 @@ function finishUsageOnlyRebase(repo: string): string | null {
 function abortRebase(repo: string, why: string): void {
   const abort = git(repo, ["rebase", "--abort"]);
   if (!abort.ok) {
-    say(`Shared memories: rebase conflict AND --abort failed — repo may be in a half-rebased state. Run ${RESOLVE_COMMAND} to finish it.`);
+    say(
+      `Shared memories: the rebase failed AND --abort failed — repo may be in a half-rebased state. Run ${RESOLVE_COMMAND} to finish it.`,
+    );
     detail(abort.stderr.replace(/\n$/, ""));
   } else {
     say(why);
   }
+}
+
+// `err` must be git's LC_ALL=C stderr.
+function pullFailure(err: string, midRebase: boolean): string {
+  // Retrying never clears this one, and every Stop would hit it again until the setting is fixed.
+  if (/commit.graph/i.test(err)) {
+    return "Shared memories: pull --rebase failed on the checkout's commit-graph. Run `mcs sync` to turn it off; until then every push fails the same way.";
+  }
+  return midRebase
+    ? "Shared memories: pull --rebase failed partway and was rolled back. Will retry on next Stop."
+    : "Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.";
 }
 
 export function syncToRemote(repo: string, attemptsRaw: string | undefined): void {
@@ -71,7 +84,12 @@ export function syncToRemote(repo: string, attemptsRaw: string | undefined): voi
     if (!pull.ok) {
       const err = pull.stderr.replace(/\n$/, "");
       if (!/conflict/i.test(err)) {
-        say("Shared memories: pull --rebase failed (likely auth or network). Will retry on next Stop.");
+        // A failure mid-pick (a missing object, say) leaves the rebase behind, and that pauses every later Stop.
+        // Aborting now is safe: everything is committed or in the autostash.
+        const midRebase = operationInProgress(repo) === "rebase";
+        const message = pullFailure(err, midRebase);
+        if (midRebase) abortRebase(repo, message);
+        else say(message);
         detail(err);
         return;
       }

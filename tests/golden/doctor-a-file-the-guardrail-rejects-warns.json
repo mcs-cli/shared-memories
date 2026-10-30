@@ -1,0 +1,6 @@
+{
+  "stdout": "Shared memories setup needs attention:\n  - 1 file(s) the naming guardrail rejects block every push: memories/scratch.md (run /resolve-memories)\n",
+  "stderr": "",
+  "code": 2,
+  "git": "status-all: ?? memories/scratch.md\nlog-all: seed\ntracked-all: memories/learning_seed_topic.md\nstatus: ?? memories/scratch.md\nlog: seed\nhead-body: \nupstream: origin/main\nunpushed: 0\ntracked: memories/learning_seed_topic.md\nworktree: learning_seed_topic.md scratch.md\nremote-log: seed\nremote-files: memories/learning_seed_topic.md"
+}

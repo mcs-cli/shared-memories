@@ -1,5 +1,5 @@
 {
-  "stdout": "Shared memories already linked — leaving as-is.\n",
+  "stdout": "Turned off core.commitGraph for the memories checkout.\nShared memories already linked — leaving as-is.\n",
   "stderr": "",
   "code": 0,
   "git": ".memories-repo memories\nlearning_shared_seed.md"
